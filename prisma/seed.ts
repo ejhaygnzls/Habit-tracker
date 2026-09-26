@@ -86,7 +86,8 @@ async function main() {
   const today = new Date();
   const dayOffsets = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-  for (const [index, habit] of habits.entries()) {
+  for (let index = 0; index < habits.length; index += 1) {
+    const habit = habits[index];
     for (const offset of dayOffsets) {
       const date = new Date(today);
       date.setDate(date.getDate() - offset);

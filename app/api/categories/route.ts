@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSessionUserId } from '@/lib/auth';
+import { getUserFromRequest } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 const categorySchema = z.object({
@@ -8,14 +8,14 @@ const categorySchema = z.object({
   color: z.string().min(3).max(12),
 });
 
-export async function GET() {
-  const userId = getSessionUserId();
-  if (!userId) {
+export async function GET(request: Request) {
+  const user = getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const categories = await prisma.category.findMany({
-    where: { userId },
+    where: { userId: user.userId },
     orderBy: { name: 'asc' },
   });
 
@@ -23,8 +23,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const userId = getSessionUserId();
-  if (!userId) {
+  const user = getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
     const category = await prisma.category.create({
       data: {
-        userId,
+        userId: user.userId,
         name: body.name,
         color: body.color,
       },

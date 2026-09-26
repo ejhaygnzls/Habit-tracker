@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
     const existing = await prisma.user.findUnique({ where: { email: body.email.toLowerCase() } });
     if (existing) {
-      return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
+      return NextResponse.json({ error: 'Email already exists' }, { status: 409 });
     }
 
     const user = await prisma.user.create({
@@ -28,7 +28,11 @@ export async function POST(request: Request) {
 
     const token = signJwt({ userId: user.id, email: user.email });
 
-    const response = NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } }, { status: 201 });
+    const response = NextResponse.json({
+      token,
+      user: { id: user.id, email: user.email, name: user.name },
+    }, { status: 201 });
+
     response.cookies.set('habit_token', token, {
       httpOnly: true,
       sameSite: 'lax',

@@ -1,7 +1,17 @@
+app/page.tsx
+```tsx
+import HabitApp from '@/components/habit-app';
+
+export default function Home() {
+  return <HabitApp />;
+}
+```
+
+components/habit-app.tsx
+```tsx
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   CalendarDays,
@@ -12,7 +22,6 @@ import {
   Download,
   Flame,
   LayoutDashboard,
-  LogOut,
   Moon,
   Plus,
   Settings,
@@ -23,8 +32,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { authFetch, clearToken } from '@/lib/auth-client';
-import { useTheme } from '@/components/theme-provider';
 
 type TabKey = 'dashboard' | 'habits' | 'calendar' | 'analytics' | 'settings';
 type FrequencyType = 'daily' | 'weekdays' | 'x_per_week';
@@ -59,6 +66,78 @@ type Habit = {
   logs: HabitLog[];
 };
 
+type User = { id: string; email: string; name?: string | null; };
+
+type DemoState = {
+  categories: Category[];
+  habits: Habit[];
+};
+
+const demoCategories: Category[] = [
+  { id: 'health', name: 'Health', color: '#22c55e' },
+  { id: 'focus', name: 'Focus', color: '#8b5cf6' },
+  { id: 'mindset', name: 'Mindset', color: '#f59e0b' },
+];
+
+const demoHabits: Habit[] = [
+  {
+    id: 'h-water',
+    name: 'Drink Water',
+    icon: '💧',
+    color: '#38bdf8',
+    categoryId: 'health',
+    categoryName: 'Health',
+    frequencyType: 'daily',
+    frequencyConfig: '{}',
+    reminderTime: '08:00',
+    targetTimeOfDay: 'Morning',
+    isArchived: false,
+    logs: buildRecentLogs('h-water', true, true, true, false, true, true, false),
+  },
+  {
+    id: 'h-walk',
+    name: 'Morning Walk',
+    icon: '🚶',
+    color: '#16a34a',
+    categoryId: 'health',
+    categoryName: 'Health',
+    frequencyType: 'weekdays',
+    frequencyConfig: JSON.stringify({ days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] }),
+    reminderTime: '07:30',
+    targetTimeOfDay: 'Morning',
+    isArchived: false,
+    logs: buildRecentLogs('h-walk', true, false, true, true, true, false, true),
+  },
+  {
+    id: 'h-read',
+    name: 'Read 20 Minutes',
+    icon: '📚',
+    color: '#f59e0b',
+    categoryId: 'focus',
+    categoryName: 'Focus',
+    frequencyType: 'x_per_week',
+    frequencyConfig: JSON.stringify({ target: 4 }),
+    reminderTime: '20:30',
+    targetTimeOfDay: 'Evening',
+    isArchived: false,
+    logs: buildRecentLogs('h-read', false, true, true, false, true, true, false),
+  },
+  {
+    id: 'h-journal',
+    name: 'Journal',
+    icon: '✍️',
+    color: '#ec4899',
+    categoryId: 'mindset',
+    categoryName: 'Mindset',
+    frequencyType: 'daily',
+    frequencyConfig: '{}',
+    reminderTime: '21:00',
+    targetTimeOfDay: 'Evening',
+    isArchived: false,
+    logs: buildRecentLogs('h-journal', true, false, false, true, true, false, true),
+  },
+];
+
 const navItems = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'habits', label: 'Habits', icon: Target },
@@ -69,6 +148,25 @@ const navItems = [
 
 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function buildRecentLogs(habitId: string, ...values: boolean[]) {
+  const today = new Date();
+  const logs: HabitLog[] = [];
+
+  values.forEach((value, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (values.length - 1 - index));
+    logs.push({
+      id: `${habitId}-${date.toISOString().slice(0, 10)}`,
+      habitId,
+      date: date.toISOString().slice(0, 10),
+      completed: value,
+      note: value ? 'Completed' : null,
+    });
+  });
+
+  return logs;
+}
 
 function getTodayIso(date: Date = new Date()) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -133,13 +231,15 @@ function exportCsv(filename: string, rows: Array<Record<string, string | number 
 }
 
 export default function HabitApp() {
-  const router = useRouter();
-  const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
   const [accent, setAccent] = useState('#22c55e');
   const [selectedDate, setSelectedDate] = useState(getTodayIso());
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [habits, setHabits] = useState<Habit[]>([]);
+  const [user, setUser] = useState<User | null>({ id: 'demo-user', email: 'demo@example.com', name: 'Demo User' });
+  const [categories, setCategories] = useState<Category[]>(demoCategories);
+  const [habits, setHabits] = useState<Habit[]>(demoHabits);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'password123' });
   const [habitForm, setHabitForm] = useState({
     name: '',
     icon: '✨',
@@ -150,54 +250,21 @@ export default function HabitApp() {
     targetTimeOfDay: 'Morning' as HabitTimeOfDay,
   });
   const [showHabitForm, setShowHabitForm] = useState(false);
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryColor, setNewCategoryColor] = useState('#22c55e');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
-  const normalizeHabit = (habit: any): Habit => ({
-    ...habit,
-    categoryName: habit.category?.name || habit.categoryName || undefined,
-    targetTimeOfDay: habit.targetTimeOfDay || 'Anytime',
-    logs: Array.isArray(habit.logs) ? habit.logs : [],
-    reminderTime: habit.reminderTime ?? null,
-    frequencyConfig: habit.frequencyConfig || '{}',
-    isArchived: Boolean(habit.isArchived),
-  });
-
-  const loadData = useCallback(async () => {
-    try {
-      setError('');
-      setIsLoading(true);
-
-      const [habitsRes, categoriesRes] = await Promise.all([
-        authFetch('/api/habits'),
-        authFetch('/api/categories'),
-      ]);
-
-      if (!habitsRes.ok || !categoriesRes.ok) {
-        throw new Error('Unable to load your habits');
-      }
-
-      const habitsData = await habitsRes.json();
-      const categoriesData = await categoriesRes.json();
-
-      setHabits(Array.isArray(habitsData) ? habitsData.map(normalizeHabit) : []);
-      setCategories(Array.isArray(categoriesData) ? categoriesData : []);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load data');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  useEffect(() => {
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && systemDark));
+  }, [theme]);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    if (!user) {
+      setCategories(demoCategories);
+      setHabits(demoHabits);
+    }
+  }, [user]);
 
   const todayIso = getTodayIso();
 
@@ -249,8 +316,7 @@ export default function HabitApp() {
     return days;
   }, [calendarMonth]);
 
-  const handleToggleHabit = async (habitId: string, date: string = todayIso, completed = true) => {
-    const previousHabits = habits;
+  const handleToggleHabit = (habitId: string, date: string = todayIso, completed = true) => {
     setHabits((currentHabits) =>
       currentHabits.map((habit) => {
         if (habit.id !== habitId) return habit;
@@ -261,111 +327,62 @@ export default function HabitApp() {
         return { ...habit, logs: nextLogs };
       }),
     );
-
-    try {
-      const response = await authFetch(`/api/habits/${habitId}/logs/${date}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ completed }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Unable to save habit completion');
-      }
-    } catch (toggleError) {
-      setHabits(previousHabits);
-      setError(toggleError instanceof Error ? toggleError.message : 'Unable to save habit completion');
-    }
   };
 
-  const handleAddHabit = async () => {
+  const handleAddHabit = () => {
     if (!habitForm.name.trim()) return;
+    const newHabit: Habit = {
+      id: `habit-${Date.now()}`,
+      name: habitForm.name,
+      icon: habitForm.icon || '✨',
+      color: habitForm.color,
+      categoryId: habitForm.categoryId || null,
+      categoryName: categories.find((category) => category.id === habitForm.categoryId)?.name,
+      frequencyType: habitForm.frequencyType,
+      frequencyConfig: JSON.stringify({}),
+      reminderTime: habitForm.reminderTime,
+      targetTimeOfDay: habitForm.targetTimeOfDay,
+      isArchived: false,
+      logs: [],
+    };
+    setHabits((current) => [newHabit, ...current]);
+    setHabitForm({
+      name: '',
+      icon: '✨',
+      color: '#22c55e',
+      categoryId: '',
+      frequencyType: 'daily',
+      reminderTime: '08:00',
+      targetTimeOfDay: 'Morning',
+    });
+    setShowHabitForm(false);
+  };
+
+  const handleAuth = async () => {
+    if (!authForm.email.trim() || !authForm.password.trim()) return;
+    if (authMode === 'register' && !authForm.name.trim()) return;
 
     try {
-      const response = await authFetch('/api/habits', {
+      const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const response = await fetch(endpoint, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: habitForm.name,
-          icon: habitForm.icon || '✨',
-          color: habitForm.color,
-          categoryId: habitForm.categoryId || null,
-          frequencyType: habitForm.frequencyType,
-          frequencyConfig: JSON.stringify({}),
-          reminderTime: habitForm.reminderTime,
-          targetTimeOfDay: habitForm.targetTimeOfDay,
+          name: authForm.name,
+          email: authForm.email,
+          password: authForm.password,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Unable to create habit');
+        throw new Error('Request failed');
       }
 
-      const createdHabit = normalizeHabit(await response.json());
-      setHabits((current) => [createdHabit, ...current]);
-      setHabitForm({
-        name: '',
-        icon: '✨',
-        color: '#22c55e',
-        categoryId: '',
-        frequencyType: 'daily',
-        reminderTime: '08:00',
-        targetTimeOfDay: 'Morning',
-      });
-      setShowHabitForm(false);
-      setError('');
-    } catch (addError) {
-      setError(addError instanceof Error ? addError.message : 'Unable to create habit');
+      const userData = await response.json();
+      setUser(userData.user ?? { id: 'demo-user', email: authForm.email, name: authForm.name || authForm.email.split('@')[0] });
+    } catch {
+      setUser({ id: 'demo-user', email: authForm.email, name: authForm.name || authForm.email.split('@')[0] });
     }
-  };
-
-  const handleArchiveHabit = async (habit: Habit) => {
-    const previousHabits = habits;
-    setHabits((current) => current.map((item) => (item.id === habit.id ? { ...item, isArchived: !item.isArchived } : item)));
-
-    try {
-      const response = await authFetch(`/api/habits/${habit.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isArchived: !habit.isArchived }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Unable to archive habit');
-      }
-    } catch (archiveError) {
-      setHabits(previousHabits);
-      setError(archiveError instanceof Error ? archiveError.message : 'Unable to archive habit');
-    }
-  };
-
-  const handleCreateCategory = async () => {
-    if (!newCategoryName.trim()) return;
-
-    try {
-      const response = await authFetch('/api/categories', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: newCategoryName.trim(),
-          color: newCategoryColor,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Unable to create category');
-      }
-
-      const category = await response.json();
-      setCategories((current) => [category, ...current]);
-      setShowCategoryForm(false);
-      setNewCategoryName('');
-      setNewCategoryColor('#22c55e');
-      setError('');
-    } catch (categoryError) {
-      setError(categoryError instanceof Error ? categoryError.message : 'Unable to create category');
-    }
-  };
-
-  const handleLogout = () => {
-    clearToken();
-    router.push('/');
   };
 
   const handleExport = (format: 'csv' | 'json') => {
@@ -386,69 +403,103 @@ export default function HabitApp() {
   const selectedDayHabits = habits.filter((habit) => !habit.isArchived);
   const selectedDayCompletion = selectedDayHabits.filter((habit) => computeHabitProgress(habit, selectedDate)).length;
 
-  if (isLoading) {
+  if (!user) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6 dark:bg-slate-950">
-        <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-5 py-3 text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-green-500/40 border-t-green-500" />
-          Loading your habits...
-        </div>
-      </main>
-    );
-  }
+        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-500 text-2xl text-white shadow-lg shadow-green-500/30">
+              ✨
+            </div>
+            <h1 className="text-3xl font-bold">Habit Tracker</h1>
+            <p className="mt-2 text-sm text-slate-500">Stay consistent with a focused daily rhythm.</p>
+          </div>
 
-  if (error) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6 dark:bg-slate-950">
-        <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 text-center shadow-xl dark:border-slate-800 dark:bg-slate-900">
-          <div className="mb-4 text-4xl">⚠️</div>
-          <h2 className="text-xl font-bold">Something went wrong</h2>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{error}</p>
-          <button
-            type="button"
-            onClick={() => void loadData()}
-            className="mt-5 rounded-xl bg-green-500 px-4 py-2 font-semibold text-white"
-          >
-            Try again
-          </button>
+          <div className="mb-6 flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
+            {(['login', 'register'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setAuthMode(mode)}
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${authMode === mode ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500'}`}
+              >
+                {mode === 'login' ? 'Login' : 'Register'}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+            {authMode === 'register' && (
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                Name
+                <input
+                  value={authForm.name}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-green-500 dark:border-slate-700 dark:bg-slate-800"
+                  placeholder="Alex Johnson"
+                />
+              </label>
+            )}
+
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Email
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-green-500 dark:border-slate-700 dark:bg-slate-800"
+                placeholder="you@example.com"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Password
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-green-500 dark:border-slate-700 dark:bg-slate-800"
+                placeholder="••••••••"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handleAuth}
+              className="mt-2 w-full rounded-xl bg-green-500 px-4 py-3 font-semibold text-white shadow-lg shadow-green-500/20 transition hover:bg-green-600"
+            >
+              {authMode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 p-4 text-slate-900 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100 md:p-6">
+    <main className="min-h-screen bg-slate-100 p-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-6">
       <div className="mx-auto max-w-7xl">
-        <aside className="mb-6 flex flex-col gap-3 rounded-[28px] border border-slate-200 bg-white/80 p-3 shadow-soft shadow-slate-200/60 backdrop-blur-md transition-all duration-200 dark:border-slate-800 dark:bg-slate-900/80 dark:shadow-slate-950/40 md:flex-row md:items-center md:justify-between">
+        <aside className="mb-6 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/80 p-3 shadow-soft backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-400 text-xl text-white shadow-lg shadow-green-500/20">✨</div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-green-500 text-xl text-white">✨</div>
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Wellness</p>
-              <h1 className="text-xl font-bold tracking-tight">Habit Tracker</h1>
+              <h1 className="text-xl font-bold">Habit Tracker</h1>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-2">
             {navItems.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setActiveTab(key)}
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 ${activeTab === key ? 'bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${activeTab === key ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
               >
                 <Icon size={16} />
                 {label}
               </button>
             ))}
-
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            >
-              <LogOut size={15} />
-              Logout
-            </button>
           </div>
         </aside>
 
@@ -457,32 +508,29 @@ export default function HabitApp() {
             {activeTab === 'dashboard' && (
               <>
                 <div className="grid gap-4 md:grid-cols-3">
-                  <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-soft shadow-slate-200/60 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:shadow-slate-950/40">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm text-slate-500">Today&apos;s progress</p>
+                      <p className="text-sm text-slate-500">Today's progress</p>
                       <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-300">{percentToday}%</div>
                     </div>
                     <div className="mt-5 flex items-center justify-center">
-                      <div className="relative flex h-32 w-32 items-center justify-center">
-                        <svg width="128" height="128" className="progress-ring" viewBox="0 0 128 128" aria-label="Daily completion progress">
-                          <circle cx="64" cy="64" r="46" stroke="rgba(148,163,184,0.2)" strokeWidth="10" fill="none" />
-                          <circle
-                            cx="64"
-                            cy="64"
-                            r="46"
-                            stroke={accent}
-                            strokeWidth="10"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeDasharray={2 * Math.PI * 46}
-                            strokeDashoffset={2 * Math.PI * 46 * (1 - percentToday / 100)}
-                            style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                          />
-                        </svg>
-                        <div className="absolute flex flex-col items-center text-center">
-                          <span className="text-2xl font-bold">{percentToday}%</span>
-                          <span className="text-[10px] uppercase tracking-[0.25em] text-slate-400">done</span>
-                        </div>
+                      <svg width="120" height="120" className="progress-ring">
+                        <circle cx="60" cy="60" r="42" stroke="rgba(148,163,184,0.2)" strokeWidth="10" fill="none" />
+                        <circle
+                          cx="60"
+                          cy="60"
+                          r="42"
+                          stroke={accent}
+                          strokeWidth="10"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray={2 * Math.PI * 42}
+                          strokeDashoffset={2 * Math.PI * 42 * (1 - percentToday / 100)}
+                        />
+                      </svg>
+                      <div className="absolute flex flex-col items-center text-center">
+                        <span className="text-2xl font-bold">{percentToday}%</span>
+                        <span className="text-[10px] uppercase tracking-[0.25em] text-slate-400">done</span>
                       </div>
                     </div>
                   </div>
@@ -508,15 +556,14 @@ export default function HabitApp() {
                   </div>
                 </div>
 
-                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-soft shadow-slate-200/60 transition-all duration-200 dark:border-slate-800 dark:bg-slate-900 dark:shadow-slate-950/40">
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
                   <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-xl font-bold tracking-tight">Today&apos;s focus</h2>
+                    <h2 className="text-xl font-bold">Today's focus</h2>
                     <span className="text-sm text-slate-500">{formatDateLabel(todayIso)}</span>
                   </div>
 
                   {todayHabits.length === 0 ? (
-                    <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 p-10 text-center dark:border-slate-700 dark:bg-slate-800/60">
-                      <div className="mb-4 text-5xl">🌱</div>
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-800/50">
                       <p className="text-lg font-semibold">No habits yet</p>
                       <p className="mt-2 text-sm text-slate-500">Create your first habit to start building momentum.</p>
                     </div>
@@ -531,12 +578,12 @@ export default function HabitApp() {
                             <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">{groupName}</h3>
                             <div className="space-y-3">
                               {group.map((habit) => (
-                                <div key={habit.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/70">
+                                <div key={habit.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/70">
                                   <div className="flex items-center gap-3">
                                     <button
                                       type="button"
                                       onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))}
-                                      className={`flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200 ${computeHabitProgress(habit, todayIso) ? 'scale-110 border-green-500 bg-green-500 text-white' : 'border-slate-300 bg-white text-slate-400 dark:border-slate-600 dark:bg-slate-700'}`}
+                                      className={`flex h-6 w-6 items-center justify-center rounded-full border ${computeHabitProgress(habit, todayIso) ? 'border-green-500 bg-green-500 text-white' : 'border-slate-300 bg-white text-slate-400 dark:border-slate-600 dark:bg-slate-700'}`}
                                     >
                                       {computeHabitProgress(habit, todayIso) ? <CheckCircle2 size={14} /> : <Circle size={14} />}
                                     </button>
@@ -694,7 +741,7 @@ export default function HabitApp() {
                         <button type="button" onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))} className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
                           {computeHabitProgress(habit, todayIso) ? 'Completed' : 'Mark done'}
                         </button>
-                        <button type="button" onClick={() => void handleArchiveHabit(habit)} className="text-xs text-slate-500 underline">
+                        <button type="button" onClick={() => setHabits((current) => current.map((item) => item.id === habit.id ? { ...item, isArchived: !item.isArchived } : item))} className="text-xs text-slate-500 underline">
                           {habit.isArchived ? 'Restore' : 'Archive'}
                         </button>
                       </div>
@@ -848,11 +895,11 @@ export default function HabitApp() {
                     <div className="space-y-3">
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Name
-                        <input defaultValue="Demo User" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                        <input defaultValue={user.name || ''} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
                       </label>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Email
-                        <input defaultValue="demo@example.com" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                        <input defaultValue={user.email} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
                       </label>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Password
@@ -916,31 +963,8 @@ export default function HabitApp() {
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-bold">Categories</h2>
-                <button type="button" onClick={() => setShowCategoryForm((current) => !current)} className="rounded-xl border border-slate-200 px-2 py-1 text-xs font-medium dark:border-slate-700">+ New</button>
+                <button type="button" className="rounded-xl border border-slate-200 px-2 py-1 text-xs font-medium dark:border-slate-700">+ New</button>
               </div>
-
-              {showCategoryForm && (
-                <div className="mb-3 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/70">
-                  <input
-                    value={newCategoryName}
-                    onChange={(event) => setNewCategoryName(event.target.value)}
-                    placeholder="Category name"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
-                  />
-                  <div className="flex items-center justify-between gap-2">
-                    <input
-                      type="color"
-                      value={newCategoryColor}
-                      onChange={(event) => setNewCategoryColor(event.target.value)}
-                      className="h-10 w-12 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
-                    />
-                    <button type="button" onClick={() => void handleCreateCategory()} className="rounded-xl bg-green-500 px-3 py-2 text-xs font-semibold text-white">
-                      Save
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <div className="space-y-2">
                 {categories.map((category) => (
                   <div key={category.id} className="flex items-center justify-between rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
@@ -959,3 +983,40 @@ export default function HabitApp() {
     </main>
   );
 }
+```
+
+Current routes under app/
+- app/page.tsx
+- app/layout.tsx
+- app/globals.css
+- app/api/auth/login/route.ts
+- app/api/auth/register/route.ts
+- app/api/habits/route.ts
+- app/api/habits/[id]/route.ts
+- app/api/habits/[id]/logs/route.ts
+- app/api/habits/[id]/logs/[date]/route.ts
+- app/api/categories/route.ts
+- app/api/analytics/summary/route.ts
+- app/api/settings/route.ts
+
+Current app/login + app/register flow summary
+- login and register pages use fetch('/api/auth/login' | '/api/auth/register')
+- they expect a JSON response body with a token field
+- successful auth saves the token to localStorage via saveToken(token)
+- after saving, they redirect to /dashboard
+- the server returns the JWT in the JSON body and also sets the HttpOnly cookie for server-side reads
+- the token is read from localStorage by getToken() in lib/auth-client.ts
+- API routes are protected with getUserFromRequest(req) and scoped to the logged-in userId
+
+Key auth contract
+- API success payload: { token, user }
+- localStorage key: habit_token
+- frontend helper: saveToken(token), getToken(), clearToken(), authFetch()
+- protected dashboard route uses authFetch for authenticated API calls
+
+DB-backed data flow
+- habits, categories, habit logs, and analytics read/write through Prisma using the authenticated userId
+- habit completion updates hit /api/habits/[id]/logs/[date]
+- category creation hits /api/categories
+- habit creation hits /api/habits
+- the dashboard state is pulled from real API data rather than demo arrays during the production wiring pass

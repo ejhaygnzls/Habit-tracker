@@ -22,6 +22,40 @@ button, input, select {
   box-sizing: border-box;
 }
 
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authErrorIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.landing-fade-in {
+  animation: fadeInUp 0.7s ease-out both;
+}
+
+.landing-fade-in-delay {
+  animation: fadeInUp 0.8s ease-out 0.08s both;
+}
+
+.auth-error {
+  animation: authErrorIn 0.2s ease-out;
+}
+
 .progress-ring {
   transform: rotate(-90deg);
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSessionUserId } from '@/lib/auth';
+import { getUserFromRequest } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 const habitSchema = z.object({
@@ -14,14 +14,14 @@ const habitSchema = z.object({
   targetTimeOfDay: z.enum(['Morning', 'Afternoon', 'Evening', 'Anytime']).optional(),
 });
 
-export async function GET() {
-  const userId = getSessionUserId();
-  if (!userId) {
+export async function GET(request: Request) {
+  const user = getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const habits = await prisma.habit.findMany({
-    where: { userId },
+    where: { userId: user.userId },
     include: { category: true, logs: true },
     orderBy: { createdAt: 'desc' },
   });
@@ -34,8 +34,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const userId = getSessionUserId();
-  if (!userId) {
+  const user = getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const body = habitSchema.parse(await request.json());
     const habit = await prisma.habit.create({
       data: {
-        userId,
+        userId: user.userId,
         name: body.name,
         icon: body.icon,
         color: body.color,

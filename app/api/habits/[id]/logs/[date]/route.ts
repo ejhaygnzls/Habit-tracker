@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSessionUserId } from '@/lib/auth';
+import { getUserFromRequest } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 const logSchema = z.object({
@@ -9,12 +9,12 @@ const logSchema = z.object({
 });
 
 export async function PATCH(request: Request, { params }: { params: { id: string; date: string } }) {
-  const userId = getSessionUserId();
-  if (!userId) {
+  const user = getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const habit = await prisma.habit.findFirst({ where: { id: params.id, userId } });
+  const habit = await prisma.habit.findFirst({ where: { id: params.id, userId: user.userId } });
   if (!habit) {
     return NextResponse.json({ error: 'Habit not found' }, { status: 404 });
   }

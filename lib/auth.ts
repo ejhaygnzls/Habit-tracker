@@ -34,3 +34,16 @@ export function getSessionUserId() {
     return null;
   }
 }
+
+export function getUserFromRequest(req: Request) {
+  const headerToken = req.headers.get('authorization');
+  const token = headerToken?.startsWith('Bearer ') ? headerToken.slice(7).trim() : getAuthCookie();
+
+  if (!token) return null;
+
+  try {
+    return verifyJwt(token);
+  } catch {
+    return null;
+  }
+}
