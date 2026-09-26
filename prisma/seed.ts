@@ -4,15 +4,20 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  const user = await prisma.user.upsert({
+  const demoUser = await prisma.user.upsert({
     where: { email: 'demo@example.com' },
-    update: {},
+    update: {
+      name: 'Demo User',
+      passwordHash: await bcrypt.hash('password123', 10),
+    },
     create: {
       email: 'demo@example.com',
       name: 'Demo User',
       passwordHash: await bcrypt.hash('password123', 10),
     },
   });
+
+  const user = demoUser;
 
   const healthCategory = await prisma.category.upsert({
     where: { id: 'health-cat' },
@@ -46,7 +51,6 @@ async function main() {
       frequencyType: 'daily',
       frequencyConfig: JSON.stringify({}),
       reminderTime: '08:00',
-      targetTimeOfDay: 'Morning',
     },
     {
       id: 'habit-walk',
@@ -57,7 +61,6 @@ async function main() {
       frequencyType: 'weekdays',
       frequencyConfig: JSON.stringify({ days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] }),
       reminderTime: '07:30',
-      targetTimeOfDay: 'Morning',
     },
     {
       id: 'habit-read',
@@ -68,7 +71,6 @@ async function main() {
       frequencyType: 'x_per_week',
       frequencyConfig: JSON.stringify({ target: 4 }),
       reminderTime: '20:30',
-      targetTimeOfDay: 'Evening',
     },
   ] as const;
 

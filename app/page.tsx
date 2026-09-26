@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import { ArrowRight, BarChart3, CheckCheck, Moon, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/theme-provider';
