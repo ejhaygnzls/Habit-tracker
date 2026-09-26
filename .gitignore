@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+npm-debug.log*
+.env
+.env.local
+.env.*
+!.env.example
+coverage
+.prisma
+.DS_Store
+dev.db
+*.db

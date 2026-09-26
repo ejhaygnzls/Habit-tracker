@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  habits       Habit[]
+  categories   Category[]
+}
+
+model Category {
+  id     String  @id @default(cuid())
+  userId String
+  name   String
+  color  String
+  habits Habit[]
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Habit {
+  id              String     @id @default(cuid())
+  userId          String
+  categoryId      String?
+  name            String
+  icon            String
+  color           String
+  frequencyType   String
+  frequencyConfig String
+  reminderTime    String?
+  isArchived      Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  logs            HabitLog[]
+}
+
+model HabitLog {
+  id        String   @id @default(cuid())
+  habitId   String
+  date      String
+  completed Boolean
+  note      String?
+  loggedAt  DateTime @default(now())
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+}

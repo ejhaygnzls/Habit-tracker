@@ -1,0 +1,974 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import {
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Download,
+  Flame,
+  LayoutDashboard,
+  Moon,
+  Plus,
+  Settings,
+  Sparkles,
+  Sun,
+  Target,
+  TrendingUp,
+  Zap,
+} from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+
+type TabKey = 'dashboard' | 'habits' | 'calendar' | 'analytics' | 'settings';
+type FrequencyType = 'daily' | 'weekdays' | 'x_per_week';
+type HabitTimeOfDay = 'Morning' | 'Afternoon' | 'Evening' | 'Anytime';
+
+type Category = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+type HabitLog = {
+  id: string;
+  habitId: string;
+  date: string;
+  completed: boolean;
+  note?: string | null;
+};
+
+type Habit = {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  categoryId?: string | null;
+  categoryName?: string;
+  frequencyType: FrequencyType;
+  frequencyConfig: string;
+  reminderTime?: string | null;
+  isArchived?: boolean;
+  targetTimeOfDay: HabitTimeOfDay;
+  logs: HabitLog[];
+};
+
+type User = { id: string; email: string; name?: string | null; };
+
+type DemoState = {
+  categories: Category[];
+  habits: Habit[];
+};
+
+const demoCategories: Category[] = [
+  { id: 'health', name: 'Health', color: '#22c55e' },
+  { id: 'focus', name: 'Focus', color: '#8b5cf6' },
+  { id: 'mindset', name: 'Mindset', color: '#f59e0b' },
+];
+
+const demoHabits: Habit[] = [
+  {
+    id: 'h-water',
+    name: 'Drink Water',
+    icon: '💧',
+    color: '#38bdf8',
+    categoryId: 'health',
+    categoryName: 'Health',
+    frequencyType: 'daily',
+    frequencyConfig: '{}',
+    reminderTime: '08:00',
+    targetTimeOfDay: 'Morning',
+    isArchived: false,
+    logs: buildRecentLogs('h-water', true, true, true, false, true, true, false),
+  },
+  {
+    id: 'h-walk',
+    name: 'Morning Walk',
+    icon: '🚶',
+    color: '#16a34a',
+    categoryId: 'health',
+    categoryName: 'Health',
+    frequencyType: 'weekdays',
+    frequencyConfig: JSON.stringify({ days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] }),
+    reminderTime: '07:30',
+    targetTimeOfDay: 'Morning',
+    isArchived: false,
+    logs: buildRecentLogs('h-walk', true, false, true, true, true, false, true),
+  },
+  {
+    id: 'h-read',
+    name: 'Read 20 Minutes',
+    icon: '📚',
+    color: '#f59e0b',
+    categoryId: 'focus',
+    categoryName: 'Focus',
+    frequencyType: 'x_per_week',
+    frequencyConfig: JSON.stringify({ target: 4 }),
+    reminderTime: '20:30',
+    targetTimeOfDay: 'Evening',
+    isArchived: false,
+    logs: buildRecentLogs('h-read', false, true, true, false, true, true, false),
+  },
+  {
+    id: 'h-journal',
+    name: 'Journal',
+    icon: '✍️',
+    color: '#ec4899',
+    categoryId: 'mindset',
+    categoryName: 'Mindset',
+    frequencyType: 'daily',
+    frequencyConfig: '{}',
+    reminderTime: '21:00',
+    targetTimeOfDay: 'Evening',
+    isArchived: false,
+    logs: buildRecentLogs('h-journal', true, false, false, true, true, false, true),
+  },
+];
+
+const navItems = [
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'habits', label: 'Habits', icon: Target },
+  { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+  { key: 'settings', label: 'Settings', icon: Settings },
+] as const;
+
+const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function buildRecentLogs(habitId: string, ...values: boolean[]) {
+  const today = new Date();
+  const logs: HabitLog[] = [];
+
+  values.forEach((value, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (values.length - 1 - index));
+    logs.push({
+      id: `${habitId}-${date.toISOString().slice(0, 10)}`,
+      habitId,
+      date: date.toISOString().slice(0, 10),
+      completed: value,
+      note: value ? 'Completed' : null,
+    });
+  });
+
+  return logs;
+}
+
+function getTodayIso(date: Date = new Date()) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function formatDateLabel(dateString: string) {
+  const date = new Date(`${dateString}T12:00:00`);
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
+}
+
+function calculateStreak(logs: HabitLog[]) {
+  const sorted = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  let streak = 0;
+  let cursor = new Date();
+
+  for (const log of sorted) {
+    const logDate = new Date(`${log.date}T12:00:00`);
+    if (log.completed && Math.abs(cursor.getTime() - logDate.getTime()) <= 86400000 * 1.5) {
+      streak += 1;
+      cursor = new Date(logDate.getTime() - 86400000);
+    } else if (log.completed) {
+      streak += 1;
+      cursor = new Date(logDate.getTime() - 86400000);
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+}
+
+function computeHabitProgress(habit: Habit, date: string = getTodayIso()) {
+  const log = habit.logs.find((item) => item.date === date);
+  return log?.completed ?? false;
+}
+
+function getCompletionData(habits: Habit[], rangeDays: number) {
+  const result: { day: string; percent: number }[] = [];
+  for (let i = rangeDays - 1; i >= 0; i -= 1) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const dayString = getTodayIso(date);
+    const total = habits.length || 1;
+    const done = habits.filter((habit) => computeHabitProgress(habit, dayString)).length;
+    result.push({ day: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), percent: Math.round((done / total) * 100) });
+  }
+  return result;
+}
+
+function exportCsv(filename: string, rows: Array<Record<string, string | number | boolean>>) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [headers.join(','), ...rows.map((row) => headers.map((header) => `"${String(row[header]).replace(/"/g, '""')}"`).join(','))].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function HabitApp() {
+  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const [accent, setAccent] = useState('#22c55e');
+  const [selectedDate, setSelectedDate] = useState(getTodayIso());
+  const [user, setUser] = useState<User | null>({ id: 'demo-user', email: 'demo@example.com', name: 'Demo User' });
+  const [categories, setCategories] = useState<Category[]>(demoCategories);
+  const [habits, setHabits] = useState<Habit[]>(demoHabits);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'password123' });
+  const [habitForm, setHabitForm] = useState({
+    name: '',
+    icon: '✨',
+    color: '#22c55e',
+    categoryId: '',
+    frequencyType: 'daily' as FrequencyType,
+    reminderTime: '08:00',
+    targetTimeOfDay: 'Morning' as HabitTimeOfDay,
+  });
+  const [showHabitForm, setShowHabitForm] = useState(false);
+  const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
+  const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+
+  useEffect(() => {
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && systemDark));
+  }, [theme]);
+
+  useEffect(() => {
+    if (!user) {
+      setCategories(demoCategories);
+      setHabits(demoHabits);
+    }
+  }, [user]);
+
+  const todayIso = getTodayIso();
+
+  const todayHabits = useMemo(() => habits.filter((habit) => !habit.isArchived), [habits]);
+  const completedToday = useMemo(() => todayHabits.filter((habit) => computeHabitProgress(habit, todayIso)).length, [todayHabits, todayIso]);
+  const percentToday = Math.round((completedToday / Math.max(todayHabits.length, 1)) * 100);
+  const bestCurrentStreak = useMemo(() => Math.max(...todayHabits.map((habit) => calculateStreak(habit.logs)), 0), [todayHabits]);
+
+  const groupedHabits = useMemo(() => {
+    const groups: Record<HabitTimeOfDay, Habit[]> = {
+      Morning: [],
+      Afternoon: [],
+      Evening: [],
+      Anytime: [],
+    };
+
+    todayHabits.forEach((habit) => {
+      const key = habit.targetTimeOfDay || 'Anytime';
+      groups[key].push(habit);
+    });
+
+    return groups;
+  }, [todayHabits]);
+
+  const analyticsData = useMemo(() => getCompletionData(todayHabits, range === '7d' ? 7 : range === '30d' ? 30 : 90), [todayHabits, range]);
+
+  const habitPerformanceData = useMemo(
+    () =>
+      [...todayHabits]
+        .map((habit) => {
+          const total = habit.logs.length || 1;
+          const done = habit.logs.filter((log) => log.completed).length;
+          return { name: habit.name, value: Math.round((done / total) * 100) };
+        })
+        .sort((a, b) => b.value - a.value),
+    [todayHabits],
+  );
+
+  const monthDays = useMemo(() => {
+    const firstDay = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const start = new Date(firstDay);
+    start.setDate(start.getDate() - firstDay.getDay());
+    const days: Date[] = [];
+    for (let i = 0; i < 42; i += 1) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + i);
+      days.push(date);
+    }
+    return days;
+  }, [calendarMonth]);
+
+  const handleToggleHabit = (habitId: string, date: string = todayIso, completed = true) => {
+    setHabits((currentHabits) =>
+      currentHabits.map((habit) => {
+        if (habit.id !== habitId) return habit;
+        const existing = habit.logs.find((log) => log.date === date);
+        const nextLogs = existing
+          ? habit.logs.map((log) => (log.date === date ? { ...log, completed } : log))
+          : [...habit.logs, { id: `log-${habitId}-${date}`, habitId, date, completed, note: completed ? 'Done' : null }];
+        return { ...habit, logs: nextLogs };
+      }),
+    );
+  };
+
+  const handleAddHabit = () => {
+    if (!habitForm.name.trim()) return;
+    const newHabit: Habit = {
+      id: `habit-${Date.now()}`,
+      name: habitForm.name,
+      icon: habitForm.icon || '✨',
+      color: habitForm.color,
+      categoryId: habitForm.categoryId || null,
+      categoryName: categories.find((category) => category.id === habitForm.categoryId)?.name,
+      frequencyType: habitForm.frequencyType,
+      frequencyConfig: JSON.stringify({}),
+      reminderTime: habitForm.reminderTime,
+      targetTimeOfDay: habitForm.targetTimeOfDay,
+      isArchived: false,
+      logs: [],
+    };
+    setHabits((current) => [newHabit, ...current]);
+    setHabitForm({
+      name: '',
+      icon: '✨',
+      color: '#22c55e',
+      categoryId: '',
+      frequencyType: 'daily',
+      reminderTime: '08:00',
+      targetTimeOfDay: 'Morning',
+    });
+    setShowHabitForm(false);
+  };
+
+  const handleAuth = async () => {
+    if (!authForm.email.trim() || !authForm.password.trim()) return;
+    if (authMode === 'register' && !authForm.name.trim()) return;
+
+    try {
+      const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: authForm.name,
+          email: authForm.email,
+          password: authForm.password,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Request failed');
+      }
+
+      const userData = await response.json();
+      setUser(userData.user ?? { id: 'demo-user', email: authForm.email, name: authForm.name || authForm.email.split('@')[0] });
+    } catch {
+      setUser({ id: 'demo-user', email: authForm.email, name: authForm.name || authForm.email.split('@')[0] });
+    }
+  };
+
+  const handleExport = (format: 'csv' | 'json') => {
+    if (format === 'csv') {
+      exportCsv('habits.csv', habits.map((habit) => ({ name: habit.name, completed: habit.logs.filter((log) => log.completed).length, total: habit.logs.length })));
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify({ categories, habits }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'habits.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const selectedDayHabits = habits.filter((habit) => !habit.isArchived);
+  const selectedDayCompletion = selectedDayHabits.filter((habit) => computeHabitProgress(habit, selectedDate)).length;
+
+  if (!user) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6 dark:bg-slate-950">
+        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-500 text-2xl text-white shadow-lg shadow-green-500/30">
+              ✨
+            </div>
+            <h1 className="text-3xl font-bold">Habit Tracker</h1>
+            <p className="mt-2 text-sm text-slate-500">Stay consistent with a focused daily rhythm.</p>
+          </div>
+
+          <div className="mb-6 flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
+            {(['login', 'register'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setAuthMode(mode)}
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${authMode === mode ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500'}`}
+              >
+                {mode === 'login' ? 'Login' : 'Register'}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+            {authMode === 'register' && (
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                Name
+                <input
+                  value={authForm.name}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-green-500 dark:border-slate-700 dark:bg-slate-800"
+                  placeholder="Alex Johnson"
+                />
+              </label>
+            )}
+
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Email
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-green-500 dark:border-slate-700 dark:bg-slate-800"
+                placeholder="you@example.com"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Password
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-green-500 dark:border-slate-700 dark:bg-slate-800"
+                placeholder="••••••••"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handleAuth}
+              className="mt-2 w-full rounded-xl bg-green-500 px-4 py-3 font-semibold text-white shadow-lg shadow-green-500/20 transition hover:bg-green-600"
+            >
+              {authMode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-100 p-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-6">
+      <div className="mx-auto max-w-7xl">
+        <aside className="mb-6 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/80 p-3 shadow-soft backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-green-500 text-xl text-white">✨</div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Wellness</p>
+              <h1 className="text-xl font-bold">Habit Tracker</h1>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {navItems.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${activeTab === key ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <div className="grid gap-6 lg:grid-cols-[1.6fr_0.8fr]">
+          <section className="space-y-6">
+            {activeTab === 'dashboard' && (
+              <>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-slate-500">Today's progress</p>
+                      <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-300">{percentToday}%</div>
+                    </div>
+                    <div className="mt-5 flex items-center justify-center">
+                      <svg width="120" height="120" className="progress-ring">
+                        <circle cx="60" cy="60" r="42" stroke="rgba(148,163,184,0.2)" strokeWidth="10" fill="none" />
+                        <circle
+                          cx="60"
+                          cy="60"
+                          r="42"
+                          stroke={accent}
+                          strokeWidth="10"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray={2 * Math.PI * 42}
+                          strokeDashoffset={2 * Math.PI * 42 * (1 - percentToday / 100)}
+                        />
+                      </svg>
+                      <div className="absolute flex flex-col items-center text-center">
+                        <span className="text-2xl font-bold">{percentToday}%</span>
+                        <span className="text-[10px] uppercase tracking-[0.25em] text-slate-400">done</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Flame size={16} className="text-orange-500" />
+                      Best streak
+                    </div>
+                    <div className="mt-6 text-4xl font-bold">{bestCurrentStreak}d</div>
+                    <p className="mt-2 text-sm text-slate-500">Current best streak across all habits</p>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <CheckCircle2 size={16} className="text-green-500" />
+                      Daily summary
+                    </div>
+                    <div className="mt-6 text-3xl font-bold">
+                      {completedToday} of {todayHabits.length}
+                    </div>
+                    <p className="mt-2 text-sm text-slate-500">{Math.max(todayHabits.length - completedToday, 0)} remaining today</p>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-xl font-bold">Today&apos;s focus</h2>
+                    <span className="text-sm text-slate-500">{formatDateLabel(todayIso)}</span>
+                  </div>
+
+                  {todayHabits.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-800/50">
+                      <p className="text-lg font-semibold">No habits yet</p>
+                      <p className="mt-2 text-sm text-slate-500">Create your first habit to start building momentum.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(Object.keys(groupedHabits) as HabitTimeOfDay[]).map((groupName) => {
+                        const group = groupedHabits[groupName];
+                        if (!group.length) return null;
+
+                        return (
+                          <div key={groupName}>
+                            <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">{groupName}</h3>
+                            <div className="space-y-3">
+                              {group.map((habit) => (
+                                <div key={habit.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/70">
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))}
+                                      className={`flex h-6 w-6 items-center justify-center rounded-full border ${computeHabitProgress(habit, todayIso) ? 'border-green-500 bg-green-500 text-white' : 'border-slate-300 bg-white text-slate-400 dark:border-slate-600 dark:bg-slate-700'}`}
+                                    >
+                                      {computeHabitProgress(habit, todayIso) ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                                    </button>
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>
+                                      {habit.icon}
+                                    </div>
+                                    <div>
+                                      <p className="font-medium">{habit.name}</p>
+                                      <p className="text-xs text-slate-500">{habit.categoryName || 'General'}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">{calculateStreak(habit.logs)}d</span>
+                                    <button type="button" className="rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                      Skip
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeTab === 'habits' && (
+              <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-500">All habits</p>
+                    <h2 className="text-2xl font-bold">Your routines</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowHabitForm((current) => !current)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900"
+                  >
+                    <Plus size={16} />
+                    Add habit
+                  </button>
+                </div>
+
+                {showHabitForm && (
+                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50 md:grid-cols-2 xl:grid-cols-3">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      Name
+                      <input
+                        value={habitForm.name}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, name: event.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        placeholder="Walk 30 minutes"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      Icon
+                      <input
+                        value={habitForm.icon}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, icon: event.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        placeholder="✨"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      Color
+                      <input
+                        type="color"
+                        value={habitForm.color}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, color: event.target.value }))}
+                        className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      Category
+                      <select
+                        value={habitForm.categoryId}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, categoryId: event.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                      >
+                        <option value="">General</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>{category.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      Frequency
+                      <select
+                        value={habitForm.frequencyType}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, frequencyType: event.target.value as FrequencyType }))}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                      >
+                        <option value="daily">Daily</option>
+                        <option value="weekdays">Weekdays</option>
+                        <option value="x_per_week">X per week</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      Time of day
+                      <select
+                        value={habitForm.targetTimeOfDay}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, targetTimeOfDay: event.target.value as HabitTimeOfDay }))}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                      >
+                        <option value="Morning">Morning</option>
+                        <option value="Afternoon">Afternoon</option>
+                        <option value="Evening">Evening</option>
+                        <option value="Anytime">Anytime</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200 md:col-span-2 xl:col-span-3">
+                      Reminder time
+                      <input
+                        type="time"
+                        value={habitForm.reminderTime}
+                        onChange={(event) => setHabitForm((current) => ({ ...current, reminderTime: event.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                      />
+                    </label>
+                    <div className="md:col-span-2 xl:col-span-3 flex justify-end">
+                      <button type="button" onClick={handleAddHabit} className="rounded-xl bg-green-500 px-4 py-2 font-semibold text-white">
+                        Save habit
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {habits.map((habit) => (
+                    <div key={habit.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>
+                            {habit.icon}
+                          </div>
+                          <div>
+                            <h3 className="font-semibold">{habit.name}</h3>
+                            <p className="text-xs text-slate-500">{habit.categoryName || 'General'}</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                          {habit.frequencyType}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
+                        <span>{habit.targetTimeOfDay}</span>
+                        <span>{habit.reminderTime || 'No reminder'}</span>
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-between">
+                        <button type="button" onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))} className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
+                          {computeHabitProgress(habit, todayIso) ? 'Completed' : 'Mark done'}
+                        </button>
+                        <button type="button" onClick={() => setHabits((current) => current.map((item) => item.id === habit.id ? { ...item, isArchived: !item.isArchived } : item))} className="text-xs text-slate-500 underline">
+                          {habit.isArchived ? 'Restore' : 'Archive'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'calendar' && (
+              <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Habit calendar</p>
+                    <h2 className="text-2xl font-bold">{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700"><ChevronLeft size={16} /></button>
+                    <button type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700"><ChevronRight size={16} /></button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">
+                  {dayNames.map((day) => (
+                    <div key={day}>{day}</div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-2">
+                  {monthDays.map((date) => {
+                    const iso = getTodayIso(date);
+                    const dayCount = habits.filter((habit) => !habit.isArchived && computeHabitProgress(habit, iso)).length;
+                    const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
+                    const isSelected = selectedDate === iso;
+                    return (
+                      <button
+                        key={iso}
+                        type="button"
+                        onClick={() => setSelectedDate(iso)}
+                        className={`flex min-h-[88px] flex-col rounded-2xl border p-2 text-left ${isSelected ? 'border-green-500 bg-green-50 dark:bg-green-500/10' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60'} ${!isCurrentMonth ? 'opacity-45' : ''}`}
+                      >
+                        <span className="text-sm font-semibold">{date.getDate()}</span>
+                        <div className="mt-auto flex flex-wrap gap-1">
+                          {Array.from({ length: Math.min(dayCount, 3) }).map((_, index) => (
+                            <span key={`${iso}-${index}`} className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="font-semibold">{formatDateLabel(selectedDate)}</h3>
+                    <span className="text-sm text-slate-500">{selectedDayCompletion} of {habits.filter((habit) => !habit.isArchived).length} done</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {habits.filter((habit) => !habit.isArchived).map((habit) => (
+                      <div key={habit.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>{habit.icon}</div>
+                          <span className="font-medium">{habit.name}</span>
+                        </div>
+                        <button type="button" onClick={() => handleToggleHabit(habit.id, selectedDate, !computeHabitProgress(habit, selectedDate))} className={`rounded-full px-3 py-1 text-xs font-semibold ${computeHabitProgress(habit, selectedDate) ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>
+                          {computeHabitProgress(habit, selectedDate) ? 'Done' : 'Mark done'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'analytics' && (
+              <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Performance</p>
+                    <h2 className="text-2xl font-bold">Analytics overview</h2>
+                  </div>
+                  <div className="flex gap-2">
+                    {(['7d', '30d', '90d'] as const).map((filter) => (
+                      <button key={filter} type="button" onClick={() => setRange(filter)} className={`rounded-xl px-3 py-2 text-sm font-medium ${range === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                    <p className="text-sm text-slate-500">Overall completion</p>
+                    <p className="mt-2 text-3xl font-bold">{Math.round(analyticsData.reduce((sum, item) => sum + item.percent, 0) / Math.max(analyticsData.length, 1))}%</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                    <p className="text-sm text-slate-500">Most consistent</p>
+                    <p className="mt-2 text-3xl font-bold">{habitPerformanceData[0]?.name || 'N/A'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                    <p className="text-sm text-slate-500">Needs attention</p>
+                    <p className="mt-2 text-3xl font-bold">{habitPerformanceData.at(-1)?.name || 'None'}</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                    <h3 className="mb-4 font-semibold">Completion trend</h3>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={analyticsData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" opacity={0.25} />
+                          <XAxis dataKey="day" stroke="#94a3b8" />
+                          <YAxis stroke="#94a3b8" domain={[0, 100]} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="percent" stroke={accent} strokeWidth={3} dot={{ r: 4 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                    <h3 className="mb-4 font-semibold">Habit comparison</h3>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={habitPerformanceData} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" opacity={0.25} />
+                          <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" />
+                          <YAxis type="category" dataKey="name" width={90} stroke="#94a3b8" />
+                          <Tooltip />
+                          <Bar dataKey="value" fill={accent} radius={6} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                <div>
+                  <p className="text-sm text-slate-500">Preferences</p>
+                  <h2 className="text-2xl font-bold">Account settings</h2>
+                </div>
+
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                    <h3 className="mb-4 font-semibold">Profile</h3>
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                        Name
+                        <input defaultValue={user.name || ''} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                      </label>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                        Email
+                        <input defaultValue={user.email} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                      </label>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                        Password
+                        <input type="password" placeholder="New password" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                    <h3 className="mb-4 font-semibold">Appearance</h3>
+                    <div className="space-y-4">
+                      <div className="flex gap-2">
+                        {(['light', 'dark', 'system'] as const).map((option) => (
+                          <button key={option} type="button" onClick={() => setTheme(option)} className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium ${theme === option ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300'}`}>
+                            {option === 'light' ? <Sun size={15} /> : option === 'dark' ? <Moon size={15} /> : <Sparkles size={15} />}
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                        Accent color
+                        <input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900" />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                  <h3 className="mb-4 font-semibold">Data & backup</h3>
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" onClick={() => handleExport('csv')} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900"><Download size={15} /> Export CSV</button>
+                    <button type="button" onClick={() => handleExport('json')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><Download size={15} /> Export JSON</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <aside className="space-y-6">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold">Quick stats</h2>
+                <Zap className="text-green-500" size={18} />
+              </div>
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800/60">
+                  <div className="text-sm text-slate-500">Current streak</div>
+                  <div className="mt-1 text-2xl font-bold">{bestCurrentStreak} days</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800/60">
+                  <div className="text-sm text-slate-500">Completion today</div>
+                  <div className="mt-1 text-2xl font-bold">{completedToday}/{todayHabits.length}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800/60">
+                  <div className="text-sm text-slate-500">Best habit</div>
+                  <div className="mt-1 text-2xl font-bold">{habitPerformanceData[0]?.name || 'N/A'}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-bold">Categories</h2>
+                <button type="button" className="rounded-xl border border-slate-200 px-2 py-1 text-xs font-medium dark:border-slate-700">+ New</button>
+              </div>
+              <div className="space-y-2">
+                {categories.map((category) => (
+                  <div key={category.id} className="flex items-center justify-between rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
+                      <span>{category.name}</span>
+                    </div>
+                    <span className="text-xs text-slate-500">{habits.filter((habit) => habit.categoryId === category.id).length}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+  );
+}
