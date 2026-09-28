@@ -158,6 +158,7 @@ export default function HabitApp() {
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [habitListFilter, setHabitListFilter] = useState<'active' | 'archived'>('active');
 
   const normalizeHabit = (habit: any): Habit => ({
     ...habit,
@@ -223,6 +224,11 @@ export default function HabitApp() {
   }, [todayHabits]);
 
   const analyticsData = useMemo(() => getCompletionData(todayHabits, range === '7d' ? 7 : range === '30d' ? 30 : 90), [todayHabits, range]);
+
+  const visibleHabits = useMemo(
+    () => habits.filter((habit) => (habitListFilter === 'archived' ? Boolean(habit.isArchived) : !habit.isArchived)),
+    [habits, habitListFilter],
+  );
 
   const habitPerformanceData = useMemo(
     () =>
@@ -583,6 +589,19 @@ export default function HabitApp() {
                   </button>
                 </div>
 
+                <div className="flex flex-wrap gap-2">
+                  {(['active', 'archived'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setHabitListFilter(filter)}
+                      className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${habitListFilter === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                    >
+                      {filter === 'active' ? 'Active' : 'Archived'}
+                    </button>
+                  ))}
+                </div>
+
                 {showHabitForm && (
                   <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50 md:grid-cols-2 xl:grid-cols-3">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -668,8 +687,13 @@ export default function HabitApp() {
                 )}
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {habits.map((habit) => (
-                    <div key={habit.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
+                  {visibleHabits.length === 0 ? (
+                    <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                      {habitListFilter === 'archived' ? 'No archived habits yet.' : 'No active habits yet.'}
+                    </div>
+                  ) : (
+                    visibleHabits.map((habit) => (
+                      <div key={habit.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-11 w-11 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>
@@ -699,7 +723,8 @@ export default function HabitApp() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             )}
