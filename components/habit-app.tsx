@@ -150,6 +150,7 @@ export default function HabitApp() {
     targetTimeOfDay: 'Morning' as HabitTimeOfDay,
   });
   const [showHabitForm, setShowHabitForm] = useState(false);
+  const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#22c55e');
@@ -283,43 +284,78 @@ export default function HabitApp() {
     }
   };
 
+  const resetHabitForm = () => {
+    setHabitForm({
+      name: '',
+      icon: '✨',
+      color: '#22c55e',
+      categoryId: '',
+      frequencyType: 'daily',
+      reminderTime: '08:00',
+      targetTimeOfDay: 'Morning',
+    });
+    setEditingHabitId(null);
+  };
+
+  const openEditHabit = (habit: Habit) => {
+    setEditingHabitId(habit.id);
+    setHabitForm({
+      name: habit.name,
+      icon: habit.icon,
+      color: habit.color,
+      categoryId: habit.categoryId ?? '',
+      frequencyType: habit.frequencyType,
+      reminderTime: habit.reminderTime ?? '08:00',
+      targetTimeOfDay: habit.targetTimeOfDay || 'Anytime',
+    });
+    setShowHabitForm(true);
+  };
+
   const handleAddHabit = async () => {
     if (!habitForm.name.trim()) return;
 
     try {
-      const response = await authFetch('/api/habits', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: habitForm.name,
-          icon: habitForm.icon || '✨',
-          color: habitForm.color,
-          categoryId: habitForm.categoryId || null,
-          frequencyType: habitForm.frequencyType,
-          frequencyConfig: JSON.stringify({}),
-          reminderTime: habitForm.reminderTime,
-          targetTimeOfDay: habitForm.targetTimeOfDay,
-        }),
-      });
+      const payload = {
+        name: habitForm.name,
+        icon: habitForm.icon || '✨',
+        color: habitForm.color,
+        categoryId: habitForm.categoryId || null,
+        frequencyType: habitForm.frequencyType,
+        frequencyConfig: JSON.stringify({}),
+        reminderTime: habitForm.reminderTime,
+        targetTimeOfDay: habitForm.targetTimeOfDay,
+      };
+
+      const response = editingHabitId
+        ? await authFetch(`/api/habits/${editingHabitId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              ...payload,
+              targetTimeOfDay: habitForm.targetTimeOfDay,
+            }),
+          })
+        : await authFetch('/api/habits', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
 
       if (!response.ok) {
-        throw new Error('Unable to create habit');
+        throw new Error(editingHabitId ? 'Unable to update habit' : 'Unable to create habit');
       }
 
-      const createdHabit = normalizeHabit(await response.json());
-      setHabits((current) => [createdHabit, ...current]);
-      setHabitForm({
-        name: '',
-        icon: '✨',
-        color: '#22c55e',
-        categoryId: '',
-        frequencyType: 'daily',
-        reminderTime: '08:00',
-        targetTimeOfDay: 'Morning',
-      });
+      const savedHabit = normalizeHabit(await response.json());
+
+      if (editingHabitId) {
+        setHabits((current) => current.map((habit) => (habit.id === editingHabitId ? { ...savedHabit, logs: habit.logs } : habit)));
+      } else {
+        setHabits((current) => [savedHabit, ...current]);
+      }
+
+      resetHabitForm();
       setShowHabitForm(false);
       setError('');
     } catch (addError) {
-      setError(addError instanceof Error ? addError.message : 'Unable to create habit');
+      setError(addError instanceof Error ? addError.message : editingHabitId ? 'Unable to update habit' : 'Unable to create habit');
     }
   };
 
@@ -339,6 +375,37 @@ export default function HabitApp() {
     } catch (archiveError) {
       setHabits(previousHabits);
       setError(archiveError instanceof Error ? archiveError.message : 'Unable to archive habit');
+    }
+  };
+
+  const handleDeleteHabit = async (habitId: string) => {
+    const targetHabit = habits.find((habit) => habit.id === habitId);
+    if (!targetHabit) return;
+
+    const confirmed = window.confirm(
+      'This permanently deletes the habit and its history. Archive is safer if you might want to restore it later. Delete anyway?',
+    );
+
+    if (!confirmed) return;
+
+    const previousHabits = habits;
+    setHabits((current) => current.filter((habit) => habit.id !== habitId));
+
+    try {
+      const response = await authFetch(`/api/habits/${habitId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Unable to delete habit');
+      }
+
+      resetHabitForm();
+      setShowHabitForm(false);
+      setError('');
+    } catch (deleteError) {
+      setHabits(previousHabits);
+      setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete habit');
     }
   };
 
@@ -678,9 +745,28 @@ export default function HabitApp() {
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
                       />
                     </label>
-                    <div className="md:col-span-2 xl:col-span-3 flex justify-end">
+                    <div className="md:col-span-2 xl:col-span-3 flex justify-end gap-2">
+                      {editingHabitId && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteHabit(editingHabitId)}
+                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 font-semibold text-red-700 dark:border-red-700/70 dark:bg-red-500/10 dark:text-red-200"
+                        >
+                          Delete habit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowHabitForm(false);
+                          resetHabitForm();
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                      >
+                        Cancel
+                      </button>
                       <button type="button" onClick={handleAddHabit} className="rounded-xl bg-green-500 px-4 py-2 font-semibold text-white">
-                        Save habit
+                        {editingHabitId ? 'Save changes' : 'Save habit'}
                       </button>
                     </div>
                   </div>
@@ -714,13 +800,18 @@ export default function HabitApp() {
                         <span>{habit.reminderTime || 'No reminder'}</span>
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between">
+                      <div className="mt-4 flex items-center justify-between gap-2">
                         <button type="button" onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))} className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
                           {computeHabitProgress(habit, todayIso) ? 'Completed' : 'Mark done'}
                         </button>
-                        <button type="button" onClick={() => void handleArchiveHabit(habit)} className="text-xs text-slate-500 underline">
-                          {habit.isArchived ? 'Restore' : 'Archive'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => openEditHabit(habit)} className="text-xs font-medium text-slate-600 underline dark:text-slate-300">
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => void handleArchiveHabit(habit)} className="text-xs text-slate-500 underline">
+                            {habit.isArchived ? 'Restore' : 'Archive'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     ))
