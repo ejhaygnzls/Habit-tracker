@@ -30,11 +30,23 @@ export async function POST(request: Request) {
 
   try {
     const body = categorySchema.parse(await request.json());
+    const trimmedName = body.name.trim();
+
+    const existingCategories = await prisma.category.findMany({
+      where: { userId: user.userId },
+      select: { name: true },
+    });
+
+    const duplicate = existingCategories.some((category) => category.name.toLowerCase() === trimmedName.toLowerCase());
+
+    if (duplicate) {
+      return NextResponse.json({ error: 'A category with that name already exists.' }, { status: 409 });
+    }
 
     const category = await prisma.category.create({
       data: {
         userId: user.userId,
-        name: body.name,
+        name: trimmedName,
         color: body.color,
       },
     });
@@ -42,7 +54,7 @@ export async function POST(request: Request) {
     return NextResponse.json(category, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Invalid category payload' }, { status: 400 });
+      return NextResponse.json({ error: 'Category name is required and must be valid.' }, { status: 400 });
     }
     return NextResponse.json({ error: 'Unable to create category' }, { status: 500 });
   }

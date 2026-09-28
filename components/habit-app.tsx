@@ -154,12 +154,16 @@ export default function HabitApp() {
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#22c55e');
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [categoryDraft, setCategoryDraft] = useState({ name: '', color: '#22c55e' });
+  const [isCategorySaving, setIsCategorySaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [habitListFilter, setHabitListFilter] = useState<'active' | 'archived'>('active');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
 
   const normalizeHabit = (habit: any): Habit => ({
     ...habit,
@@ -227,8 +231,13 @@ export default function HabitApp() {
   const analyticsData = useMemo(() => getCompletionData(todayHabits, range === '7d' ? 7 : range === '30d' ? 30 : 90), [todayHabits, range]);
 
   const visibleHabits = useMemo(
-    () => habits.filter((habit) => (habitListFilter === 'archived' ? Boolean(habit.isArchived) : !habit.isArchived)),
-    [habits, habitListFilter],
+    () =>
+      habits.filter((habit) => {
+        const matchesStatus = habitListFilter === 'archived' ? Boolean(habit.isArchived) : !habit.isArchived;
+        const matchesCategory = selectedCategoryFilter === 'all' || habit.categoryId === selectedCategoryFilter;
+        return matchesStatus && matchesCategory;
+      }),
+    [habits, habitListFilter, selectedCategoryFilter],
   );
 
   const habitPerformanceData = useMemo(
@@ -410,22 +419,31 @@ export default function HabitApp() {
   };
 
   const handleCreateCategory = async () => {
-    if (!newCategoryName.trim()) return;
+    const trimmedName = newCategoryName.trim();
+    if (!trimmedName) {
+      setError('Category name is required.');
+      return;
+    }
+
+    setIsCategorySaving(true);
+    setError('');
 
     try {
       const response = await authFetch('/api/categories', {
         method: 'POST',
         body: JSON.stringify({
-          name: newCategoryName.trim(),
+          name: trimmedName,
           color: newCategoryColor,
         }),
       });
 
+      const payload = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        throw new Error('Unable to create category');
+        throw new Error(payload.error || 'Unable to create category');
       }
 
-      const category = await response.json();
+      const category = payload as Category;
       setCategories((current) => [category, ...current]);
       setShowCategoryForm(false);
       setNewCategoryName('');
@@ -433,6 +451,88 @@ export default function HabitApp() {
       setError('');
     } catch (categoryError) {
       setError(categoryError instanceof Error ? categoryError.message : 'Unable to create category');
+    } finally {
+      setIsCategorySaving(false);
+    }
+  };
+
+  const handleSaveCategory = async (categoryId: string) => {
+    const trimmedName = categoryDraft.name.trim();
+    if (!trimmedName) {
+      setError('Category name is required.');
+      return;
+    }
+
+    setIsCategorySaving(true);
+    setError('');
+
+    try {
+      const response = await authFetch(`/api/categories/${categoryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: trimmedName,
+          color: categoryDraft.color,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to update category');
+      }
+
+      const updatedCategory = payload as Category;
+      setCategories((current) => current.map((category) => (category.id === categoryId ? updatedCategory : category)));
+      setHabits((current) =>
+        current.map((habit) => (habit.categoryId === categoryId ? { ...habit, categoryName: updatedCategory.name } : habit)),
+      );
+      setEditingCategoryId(null);
+      setCategoryDraft({ name: '', color: '#22c55e' });
+      setError('');
+    } catch (categoryError) {
+      setError(categoryError instanceof Error ? categoryError.message : 'Unable to update category');
+    } finally {
+      setIsCategorySaving(false);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) return;
+
+    const confirmed = window.confirm('This keeps the habits in this category and sets them back to General. Delete this category?');
+    if (!confirmed) return;
+
+    setIsCategorySaving(true);
+    setError('');
+
+    try {
+      const response = await authFetch(`/api/categories/${categoryId}`, {
+        method: 'DELETE',
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to delete category');
+      }
+
+      setCategories((current) => current.filter((item) => item.id !== categoryId));
+      setHabits((current) =>
+        current.map((habit) => (habit.categoryId === categoryId ? { ...habit, categoryId: null, categoryName: undefined } : habit)),
+      );
+
+      if (selectedCategoryFilter === categoryId) {
+        setSelectedCategoryFilter('all');
+      }
+
+      setEditingCategoryId(null);
+      setCategoryDraft({ name: '', color: '#22c55e' });
+      setError('');
+    } catch (categoryError) {
+      setError(categoryError instanceof Error ? categoryError.message : 'Unable to delete category');
+    } finally {
+      setIsCategorySaving(false);
     }
   };
 
@@ -665,6 +765,27 @@ export default function HabitApp() {
                       className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${habitListFilter === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
                     >
                       {filter === 'active' ? 'Active' : 'Archived'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategoryFilter('all')}
+                    className={`rounded-xl px-3 py-2 text-sm font-medium ${selectedCategoryFilter === 'all' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                  >
+                    All categories
+                  </button>
+                  {categories.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => setSelectedCategoryFilter(category.id)}
+                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium ${selectedCategoryFilter === category.id ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                    >
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: category.color }} />
+                      {category.name}
                     </button>
                   ))}
                 </div>
@@ -1050,23 +1171,71 @@ export default function HabitApp() {
                       onChange={(event) => setNewCategoryColor(event.target.value)}
                       className="h-10 w-12 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
                     />
-                    <button type="button" onClick={() => void handleCreateCategory()} className="rounded-xl bg-green-500 px-3 py-2 text-xs font-semibold text-white">
-                      Save
+                    <button type="button" onClick={() => void handleCreateCategory()} disabled={isCategorySaving} className="rounded-xl bg-green-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                      {isCategorySaving ? 'Saving...' : 'Save'}
                     </button>
                   </div>
                 </div>
               )}
 
+              {error && (
+                <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/60 dark:bg-red-500/10 dark:text-red-200">
+                  {error}
+                </div>
+              )}
+
               <div className="space-y-2">
-                {categories.map((category) => (
-                  <div key={category.id} className="flex items-center justify-between rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
-                      <span>{category.name}</span>
+                {categories.map((category) => {
+                  const isEditing = editingCategoryId === category.id;
+                  return (
+                    <div key={category.id} className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input
+                            value={categoryDraft.name}
+                            onChange={(event) => setCategoryDraft((current) => ({ ...current, name: event.target.value }))}
+                            placeholder="Category name"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <input
+                              type="color"
+                              value={categoryDraft.color}
+                              onChange={(event) => setCategoryDraft((current) => ({ ...current, color: event.target.value }))}
+                              className="h-10 w-12 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
+                            />
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => { setEditingCategoryId(null); setCategoryDraft({ name: '', color: '#22c55e' }); }} className="rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-600">
+                                Cancel
+                              </button>
+                              <button type="button" onClick={() => void handleSaveCategory(category.id)} disabled={isCategorySaving} className="rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                                {isCategorySaving ? 'Saving...' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <button type="button" onClick={() => { setEditingCategoryId(category.id); setCategoryDraft({ name: category.name, color: category.color }); }} className="flex flex-1 items-center justify-between gap-2 rounded-xl text-left">
+                            <div className="flex items-center gap-2">
+                              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
+                              <span>{category.name}</span>
+                            </div>
+                            <span className="text-xs text-slate-500">{habits.filter((habit) => habit.categoryId === category.id).length}</span>
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <button type="button" onClick={() => { setEditingCategoryId(category.id); setCategoryDraft({ name: category.name, color: category.color }); }} className="text-xs text-slate-600 underline dark:text-slate-300">
+                              Rename
+                            </button>
+                            <button type="button" onClick={() => void handleDeleteCategory(category.id)} disabled={isCategorySaving} className="text-xs text-red-600 underline dark:text-red-300 disabled:cursor-not-allowed disabled:opacity-60">
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs text-slate-500">{habits.filter((habit) => habit.categoryId === category.id).length}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </aside>
