@@ -105,6 +105,17 @@ function computeHabitProgress(habit: Habit, date: string = getTodayIso()) {
   return log?.completed ?? false;
 }
 
+function isDateInFuture(dateString: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    return false;
+  }
+
+  const parsed = new Date(`${dateString}T12:00:00`);
+  const today = new Date(`${getTodayIso()}T12:00:00`);
+
+  return Number.isNaN(parsed.getTime()) ? false : parsed.getTime() > today.getTime();
+}
+
 function getCompletionData(habits: Habit[], rangeDays: number) {
   const result: { day: string; percent: number }[] = [];
   for (let i = rangeDays - 1; i >= 0; i -= 1) {
@@ -266,6 +277,11 @@ export default function HabitApp() {
   }, [calendarMonth]);
 
   const handleToggleHabit = async (habitId: string, date: string = todayIso, completed = true) => {
+    if (isDateInFuture(date)) {
+      setError('You can only update habits for today or past dates.');
+      return;
+    }
+
     const previousHabits = habits;
     setHabits((currentHabits) =>
       currentHabits.map((habit) => {
@@ -966,12 +982,14 @@ export default function HabitApp() {
                     const dayCount = habits.filter((habit) => !habit.isArchived && computeHabitProgress(habit, iso)).length;
                     const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
                     const isSelected = selectedDate === iso;
+                    const isFuture = isDateInFuture(iso);
                     return (
                       <button
                         key={iso}
                         type="button"
-                        onClick={() => setSelectedDate(iso)}
-                        className={`flex min-h-[88px] flex-col rounded-2xl border p-2 text-left ${isSelected ? 'border-green-500 bg-green-50 dark:bg-green-500/10' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60'} ${!isCurrentMonth ? 'opacity-45' : ''}`}
+                        onClick={() => !isFuture && setSelectedDate(iso)}
+                        disabled={isFuture}
+                        className={`flex min-h-[88px] flex-col rounded-2xl border p-2 text-left transition-opacity ${isSelected ? 'border-green-500 bg-green-50 dark:bg-green-500/10' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60'} ${!isCurrentMonth ? 'opacity-45' : ''} ${isFuture ? 'cursor-not-allowed opacity-35 grayscale' : ''}`}
                       >
                         <span className="text-sm font-semibold">{date.getDate()}</span>
                         <div className="mt-auto flex flex-wrap gap-1">
@@ -991,17 +1009,25 @@ export default function HabitApp() {
                   </div>
 
                   <div className="space-y-2">
-                    {habits.filter((habit) => !habit.isArchived).map((habit) => (
-                      <div key={habit.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>{habit.icon}</div>
-                          <span className="font-medium">{habit.name}</span>
+                    {habits.filter((habit) => !habit.isArchived).map((habit) => {
+                      const isFuture = isDateInFuture(selectedDate);
+                      return (
+                        <div key={habit.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>{habit.icon}</div>
+                            <span className="font-medium">{habit.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isFuture}
+                            onClick={() => handleToggleHabit(habit.id, selectedDate, !computeHabitProgress(habit, selectedDate))}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${isFuture ? 'cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500' : computeHabitProgress(habit, selectedDate) ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}
+                          >
+                            {isFuture ? 'Locked' : computeHabitProgress(habit, selectedDate) ? 'Done' : 'Mark done'}
+                          </button>
                         </div>
-                        <button type="button" onClick={() => handleToggleHabit(habit.id, selectedDate, !computeHabitProgress(habit, selectedDate))} className={`rounded-full px-3 py-1 text-xs font-semibold ${computeHabitProgress(habit, selectedDate) ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>
-                          {computeHabitProgress(habit, selectedDate) ? 'Done' : 'Mark done'}
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
