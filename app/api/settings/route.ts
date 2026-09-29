@@ -49,7 +49,10 @@ export async function PATCH(request: Request) {
     return NextResponse.json(user);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Invalid settings payload' }, { status: 400 });
+      return NextResponse.json({ error: error.issues[0]?.message ?? 'Invalid settings payload' }, { status: 400 });
+    }
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
     }
     return NextResponse.json({ error: 'Unable to update settings' }, { status: 500 });
   }

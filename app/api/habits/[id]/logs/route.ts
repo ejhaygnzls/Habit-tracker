@@ -51,7 +51,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json(log, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Invalid log payload' }, { status: 400 });
+      return NextResponse.json({ error: error.issues[0]?.message ?? 'Invalid log payload' }, { status: 400 });
+    }
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
     }
     return NextResponse.json({ error: 'Unable to save log' }, { status: 500 });
   }

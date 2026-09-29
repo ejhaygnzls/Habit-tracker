@@ -36,6 +36,7 @@ model Habit {
   frequencyType   String
   frequencyConfig String
   reminderTime    String?
+  targetTimeOfDay String     @default("Anytime")
   isArchived      Boolean    @default(false)
   createdAt       DateTime   @default(now())
   user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)

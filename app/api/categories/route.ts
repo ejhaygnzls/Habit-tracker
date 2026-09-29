@@ -4,7 +4,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 const categorySchema = z.object({
-  name: z.string().min(1).max(30),
+  name: z.string().trim().min(1, 'Category name is required.').max(30, 'Category name must be 30 characters or fewer.'),
   color: z.string().min(3).max(12),
 });
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
   try {
     const body = categorySchema.parse(await request.json());
-    const trimmedName = body.name.trim();
+    const trimmedName = body.name;
 
     const existingCategories = await prisma.category.findMany({
       where: { userId: user.userId },
@@ -54,7 +54,10 @@ export async function POST(request: Request) {
     return NextResponse.json(category, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Category name is required and must be valid.' }, { status: 400 });
+      return NextResponse.json({ error: error.issues[0]?.message ?? 'Invalid category payload' }, { status: 400 });
+    }
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
     }
     return NextResponse.json({ error: 'Unable to create category' }, { status: 500 });
   }
