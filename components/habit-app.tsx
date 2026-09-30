@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
+  CircleAlert,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -143,6 +144,70 @@ function exportCsv(filename: string, rows: Array<Record<string, string | number 
   URL.revokeObjectURL(url);
 }
 
+function EmptyState({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center dark:border-slate-700 dark:bg-slate-800/60">
+      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-2xl dark:bg-green-500/10">{icon}</div>
+      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500 dark:text-slate-300">{description}</p>
+      <button
+        type="button"
+        onClick={onAction}
+        className="mt-5 inline-flex min-h-10 items-center justify-center rounded-xl bg-green-500 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-green-600 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50"
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function DashboardError({ message }: { message: string }) {
+  const [displayMessage, setDisplayMessage] = useState(message);
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    if (message) {
+      setDisplayMessage(message);
+      setIsExiting(false);
+      return;
+    }
+
+    if (!displayMessage) return;
+
+    setIsExiting(true);
+    const timeout = window.setTimeout(() => {
+      setDisplayMessage('');
+      setIsExiting(false);
+    }, 180);
+
+    return () => window.clearTimeout(timeout);
+  }, [message, displayMessage]);
+
+  if (!displayMessage) return null;
+
+  return (
+    <div
+      role="alert"
+      className={`mb-4 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/80 dark:bg-red-500/10 dark:text-red-300 ${isExiting ? 'dashboard-error-exit' : 'dashboard-error-enter'}`}
+    >
+      <CircleAlert size={18} className="mt-0.5 shrink-0" />
+      <p>{displayMessage}</p>
+    </div>
+  );
+}
+
 export default function HabitApp() {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
@@ -170,6 +235,9 @@ export default function HabitApp() {
   const [isCategorySaving, setIsCategorySaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isLoadError, setIsLoadError] = useState(false);
+  const [isErrorExiting, setIsErrorExiting] = useState(false);
+  const [isHabitSaving, setIsHabitSaving] = useState(false);
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [calendarMonth, setCalendarMonth] = useState(new Date());
@@ -189,6 +257,7 @@ export default function HabitApp() {
   const loadData = useCallback(async () => {
     try {
       setError('');
+      setIsLoadError(false);
       setIsLoading(true);
 
       const [habitsRes, categoriesRes] = await Promise.all([
@@ -207,6 +276,7 @@ export default function HabitApp() {
       setCategories(Array.isArray(categoriesData) ? categoriesData : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load data');
+      setIsLoadError(true);
     } finally {
       setIsLoading(false);
     }
@@ -240,6 +310,7 @@ export default function HabitApp() {
   }, [todayHabits]);
 
   const analyticsData = useMemo(() => getCompletionData(todayHabits, range === '7d' ? 7 : range === '30d' ? 30 : 90), [todayHabits, range]);
+  const hasAnalyticsData = todayHabits.some((habit) => habit.logs.length > 0);
 
   const visibleHabits = useMemo(
     () =>
@@ -339,6 +410,7 @@ export default function HabitApp() {
   const handleAddHabit = async () => {
     if (!habitForm.name.trim()) return;
 
+    setIsHabitSaving(true);
     try {
       const payload = {
         name: habitForm.name,
@@ -381,6 +453,8 @@ export default function HabitApp() {
       setError('');
     } catch (addError) {
       setError(addError instanceof Error ? addError.message : editingHabitId ? 'Unable to update habit' : 'Unable to create habit');
+    } finally {
+      setIsHabitSaving(false);
     }
   };
 
@@ -586,17 +660,23 @@ export default function HabitApp() {
     );
   }
 
-  if (error) {
+  if (isLoadError) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6 dark:bg-slate-950">
-        <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 text-center shadow-xl dark:border-slate-800 dark:bg-slate-900">
+        <div className={`w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 text-center shadow-xl dark:border-slate-800 dark:bg-slate-900 ${isErrorExiting ? 'dashboard-error-exit' : 'dashboard-error-enter'}`}>
           <div className="mb-4 text-4xl">⚠️</div>
           <h2 className="text-xl font-bold">Something went wrong</h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{error}</p>
           <button
             type="button"
-            onClick={() => void loadData()}
-            className="mt-5 rounded-xl bg-green-500 px-4 py-2 font-semibold text-white"
+            onClick={() => {
+              setIsErrorExiting(true);
+              window.setTimeout(() => {
+                setIsErrorExiting(false);
+                void loadData();
+              }, 180);
+            }}
+            className="mt-5 min-h-10 rounded-xl bg-green-500 px-4 py-2 font-semibold text-white transition-all duration-200 hover:bg-green-600 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50"
           >
             Try again
           </button>
@@ -606,7 +686,7 @@ export default function HabitApp() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 p-4 text-slate-900 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100 md:p-6">
+    <main className="min-h-screen bg-slate-100 p-4 pb-24 text-slate-900 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100 md:p-6">
       <div className="mx-auto max-w-7xl">
         <aside className="mb-6 flex flex-col gap-3 rounded-[28px] border border-slate-200 bg-white/80 p-3 shadow-soft shadow-slate-200/60 backdrop-blur-md transition-all duration-200 dark:border-slate-800 dark:bg-slate-900/80 dark:shadow-slate-950/40 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
@@ -617,18 +697,19 @@ export default function HabitApp() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="hidden flex-wrap items-center gap-2 md:flex">
             {navItems.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setActiveTab(key)}
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 ${activeTab === key ? 'bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50 ${activeTab === key ? 'bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
               >
                 <Icon size={16} />
                 {label}
               </button>
             ))}
+          </div>
 
             <button
               type="button"
@@ -638,11 +719,29 @@ export default function HabitApp() {
               <LogOut size={15} />
               Logout
             </button>
-          </div>
         </aside>
 
+        <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95 md:hidden">
+          <div className="mx-auto flex max-w-lg items-stretch justify-around gap-1">
+            {navItems.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                aria-current={activeTab === key ? 'page' : undefined}
+                onClick={() => setActiveTab(key)}
+                className={`flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold leading-none transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50 ${activeTab === key ? 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'}`}
+              >
+                <Icon size={18} />
+                <span className="truncate">{label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <DashboardError message={error} />
+
         <div className="grid gap-6 lg:grid-cols-[1.6fr_0.8fr]">
-          <section className="space-y-6">
+          <section key={activeTab} className="space-y-6 tab-content-enter">
             {activeTab === 'dashboard' && (
               <>
                 <div className="grid gap-4 md:grid-cols-3">
@@ -665,7 +764,7 @@ export default function HabitApp() {
                             strokeLinecap="round"
                             strokeDasharray={2 * Math.PI * 46}
                             strokeDashoffset={2 * Math.PI * 46 * (1 - percentToday / 100)}
-                            style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+                            style={{ transition: 'stroke-dashoffset 0.25s ease' }}
                           />
                         </svg>
                         <div className="absolute flex flex-col items-center text-center">
@@ -676,7 +775,7 @@ export default function HabitApp() {
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-slate-950/30">
                     <div className="flex items-center gap-2 text-sm text-slate-500">
                       <Flame size={16} className="text-orange-500" />
                       Best streak
@@ -685,7 +784,7 @@ export default function HabitApp() {
                     <p className="mt-2 text-sm text-slate-500">Current best streak across all habits</p>
                   </div>
 
-                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-slate-950/30">
                     <div className="flex items-center gap-2 text-sm text-slate-500">
                       <CheckCircle2 size={16} className="text-green-500" />
                       Daily summary
@@ -697,18 +796,20 @@ export default function HabitApp() {
                   </div>
                 </div>
 
-                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-soft shadow-slate-200/60 transition-all duration-200 dark:border-slate-800 dark:bg-slate-900 dark:shadow-slate-950/40">
+                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-soft shadow-slate-200/60 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:shadow-slate-950/40 dark:hover:shadow-slate-950/50">
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-xl font-bold tracking-tight">Today&apos;s focus</h2>
                     <span className="text-sm text-slate-500">{formatDateLabel(todayIso)}</span>
                   </div>
 
                   {todayHabits.length === 0 ? (
-                    <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 p-10 text-center dark:border-slate-700 dark:bg-slate-800/60">
-                      <div className="mb-4 text-5xl">🌱</div>
-                      <p className="text-lg font-semibold">No habits yet</p>
-                      <p className="mt-2 text-sm text-slate-500">Create your first habit to start building momentum.</p>
-                    </div>
+                    <EmptyState
+                      icon="🌱"
+                      title="No habits yet"
+                      description="Create your first habit to start building momentum."
+                      actionLabel="Add your first habit"
+                      onAction={() => { setActiveTab('habits'); setShowHabitForm(true); }}
+                    />
                   ) : (
                     <div className="space-y-4">
                       {(Object.keys(groupedHabits) as HabitTimeOfDay[]).map((groupName) => {
@@ -725,7 +826,7 @@ export default function HabitApp() {
                                     <button
                                       type="button"
                                       onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))}
-                                      className={`flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200 ${computeHabitProgress(habit, todayIso) ? 'scale-110 border-green-500 bg-green-500 text-white' : 'border-slate-300 bg-white text-slate-400 dark:border-slate-600 dark:bg-slate-700'}`}
+                                      className={`flex h-10 w-10 items-center justify-center rounded-full border transition-all duration-200 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50 ${computeHabitProgress(habit, todayIso) ? 'habit-check-complete scale-105 border-green-500 bg-green-500 text-white' : 'border-slate-300 bg-white text-slate-400 hover:border-green-400 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-green-500'}`}
                                     >
                                       {computeHabitProgress(habit, todayIso) ? <CheckCircle2 size={14} /> : <Circle size={14} />}
                                     </button>
@@ -733,13 +834,13 @@ export default function HabitApp() {
                                       {habit.icon}
                                     </div>
                                     <div>
-                                      <p className="font-medium">{habit.name}</p>
+                                      <p className={`font-medium transition-colors duration-200 ${computeHabitProgress(habit, todayIso) ? 'text-slate-400 line-through decoration-green-500 dark:text-slate-500' : ''}`}>{habit.name}</p>
                                       <p className="text-xs text-slate-500">{habit.categoryName || 'General'}</p>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">{calculateStreak(habit.logs)}d</span>
-                                    <button type="button" className="rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                    <button type="button" className="min-h-10 rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-600 transition-all duration-200 hover:bg-slate-300 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 dark:focus-visible:ring-green-400/50">
                                       Skip
                                     </button>
                                   </div>
@@ -765,7 +866,7 @@ export default function HabitApp() {
                   <button
                     type="button"
                     onClick={() => setShowHabitForm((current) => !current)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900"
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition-all duration-200 hover:shadow-md active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:bg-slate-100 dark:text-slate-900 dark:focus-visible:ring-green-400/50"
                   >
                     <Plus size={16} />
                     Add habit
@@ -778,7 +879,7 @@ export default function HabitApp() {
                       key={filter}
                       type="button"
                       onClick={() => setHabitListFilter(filter)}
-                      className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${habitListFilter === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                      className={`min-h-10 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 hover:bg-slate-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:hover:bg-slate-700 dark:focus-visible:ring-green-400/50 ${habitListFilter === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
                     >
                       {filter === 'active' ? 'Active' : 'Archived'}
                     </button>
@@ -789,7 +890,7 @@ export default function HabitApp() {
                   <button
                     type="button"
                     onClick={() => setSelectedCategoryFilter('all')}
-                    className={`rounded-xl px-3 py-2 text-sm font-medium ${selectedCategoryFilter === 'all' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                    className={`min-h-10 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 hover:bg-slate-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:hover:bg-slate-700 dark:focus-visible:ring-green-400/50 ${selectedCategoryFilter === 'all' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
                   >
                     All categories
                   </button>
@@ -798,7 +899,7 @@ export default function HabitApp() {
                       key={category.id}
                       type="button"
                       onClick={() => setSelectedCategoryFilter(category.id)}
-                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium ${selectedCategoryFilter === category.id ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+                      className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 hover:bg-slate-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:hover:bg-slate-700 dark:focus-visible:ring-green-400/50 ${selectedCategoryFilter === category.id ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
                     >
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: category.color }} />
                       {category.name}
@@ -813,7 +914,7 @@ export default function HabitApp() {
                       <input
                         value={habitForm.name}
                         onChange={(event) => setHabitForm((current) => ({ ...current, name: event.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 w-full px-3 py-2"
                         placeholder="Walk 30 minutes"
                       />
                     </label>
@@ -822,7 +923,7 @@ export default function HabitApp() {
                       <input
                         value={habitForm.icon}
                         onChange={(event) => setHabitForm((current) => ({ ...current, icon: event.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 w-full px-3 py-2"
                         placeholder="✨"
                       />
                     </label>
@@ -832,7 +933,7 @@ export default function HabitApp() {
                         type="color"
                         value={habitForm.color}
                         onChange={(event) => setHabitForm((current) => ({ ...current, color: event.target.value }))}
-                        className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 h-11 w-full p-1"
                       />
                     </label>
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -840,7 +941,7 @@ export default function HabitApp() {
                       <select
                         value={habitForm.categoryId}
                         onChange={(event) => setHabitForm((current) => ({ ...current, categoryId: event.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 w-full px-3 py-2"
                       >
                         <option value="">General</option>
                         {categories.map((category) => (
@@ -853,7 +954,7 @@ export default function HabitApp() {
                       <select
                         value={habitForm.frequencyType}
                         onChange={(event) => setHabitForm((current) => ({ ...current, frequencyType: event.target.value as FrequencyType }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 w-full px-3 py-2"
                       >
                         <option value="daily">Daily</option>
                         <option value="weekdays">Weekdays</option>
@@ -865,7 +966,7 @@ export default function HabitApp() {
                       <select
                         value={habitForm.targetTimeOfDay}
                         onChange={(event) => setHabitForm((current) => ({ ...current, targetTimeOfDay: event.target.value as HabitTimeOfDay }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 w-full px-3 py-2"
                       >
                         <option value="Morning">Morning</option>
                         <option value="Afternoon">Afternoon</option>
@@ -879,7 +980,7 @@ export default function HabitApp() {
                         type="time"
                         value={habitForm.reminderTime}
                         onChange={(event) => setHabitForm((current) => ({ ...current, reminderTime: event.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                        className="dashboard-input mt-1 w-full px-3 py-2"
                       />
                     </label>
                     <div className="md:col-span-2 xl:col-span-3 flex justify-end gap-2">
@@ -902,8 +1003,9 @@ export default function HabitApp() {
                       >
                         Cancel
                       </button>
-                      <button type="button" onClick={handleAddHabit} className="rounded-xl bg-green-500 px-4 py-2 font-semibold text-white">
-                        {editingHabitId ? 'Save changes' : 'Save habit'}
+                      <button type="button" onClick={handleAddHabit} disabled={isHabitSaving} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-green-500 px-4 py-2 font-semibold text-white transition-all duration-200 hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-70">
+                        {isHabitSaving && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" />}
+                        {isHabitSaving ? 'Saving...' : editingHabitId ? 'Save changes' : 'Save habit'}
                       </button>
                     </div>
                   </div>
@@ -911,19 +1013,25 @@ export default function HabitApp() {
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {visibleHabits.length === 0 ? (
-                    <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                      {habitListFilter === 'archived' ? 'No archived habits yet.' : 'No active habits yet.'}
+                    <div className="md:col-span-2 xl:col-span-3">
+                      <EmptyState
+                        icon={habitListFilter === 'archived' ? '📦' : '🌱'}
+                        title={habitListFilter === 'archived' ? 'No archived habits' : 'No habits match this view'}
+                        description={habitListFilter === 'archived' ? 'Archived habits will appear here.' : 'Add a habit to start building your routine.'}
+                        actionLabel={habitListFilter === 'archived' ? 'Add a habit' : 'Add your first habit'}
+                        onAction={() => { setHabitListFilter('active'); setSelectedCategoryFilter('all'); setShowHabitForm(true); }}
+                      />
                     </div>
                   ) : (
                     visibleHabits.map((habit) => (
-                      <div key={habit.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
+                      <div key={habit.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/70 dark:hover:shadow-slate-950/30">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-11 w-11 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: `${habit.color}22`, color: habit.color }}>
                             {habit.icon}
                           </div>
                           <div>
-                            <h3 className="font-semibold">{habit.name}</h3>
+                            <h3 className={`font-semibold transition-colors duration-200 ${computeHabitProgress(habit, todayIso) ? 'text-slate-400 line-through decoration-green-500 dark:text-slate-500' : ''}`}>{habit.name}</h3>
                             <p className="text-xs text-slate-500">{habit.categoryName || 'General'}</p>
                           </div>
                         </div>
@@ -938,14 +1046,14 @@ export default function HabitApp() {
                       </div>
 
                       <div className="mt-4 flex items-center justify-between gap-2">
-                        <button type="button" onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))} className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
+                        <button type="button" onClick={() => handleToggleHabit(habit.id, todayIso, !computeHabitProgress(habit, todayIso))} className="min-h-10 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:bg-slate-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus-visible:ring-green-400/50">
                           {computeHabitProgress(habit, todayIso) ? 'Completed' : 'Mark done'}
                         </button>
                         <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => openEditHabit(habit)} className="text-xs font-medium text-slate-600 underline dark:text-slate-300">
+                          <button type="button" onClick={() => openEditHabit(habit)} className="min-h-10 rounded-lg px-2 text-xs font-medium text-slate-600 underline transition-colors duration-200 hover:text-green-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:text-slate-300 dark:hover:text-green-300 dark:focus-visible:ring-green-400/50">
                             Edit
                           </button>
-                          <button type="button" onClick={() => void handleArchiveHabit(habit)} className="text-xs text-slate-500 underline">
+                          <button type="button" onClick={() => void handleArchiveHabit(habit)} className="min-h-10 rounded-lg px-2 text-xs text-slate-500 underline transition-colors duration-200 hover:text-slate-900 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:text-slate-400 dark:hover:text-white dark:focus-visible:ring-green-400/50">
                             {habit.isArchived ? 'Restore' : 'Archive'}
                           </button>
                         </div>
@@ -959,14 +1067,14 @@ export default function HabitApp() {
 
             {activeTab === 'calendar' && (
               <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm text-slate-500">Habit calendar</p>
                     <h2 className="text-2xl font-bold">{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</h2>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700"><ChevronLeft size={16} /></button>
-                    <button type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700"><ChevronRight size={16} /></button>
+                    <button type="button" aria-label="Previous month" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 transition-all duration-200 hover:bg-slate-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:focus-visible:ring-green-400/50"><ChevronLeft size={16} /></button>
+                    <button type="button" aria-label="Next month" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 transition-all duration-200 hover:bg-slate-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:focus-visible:ring-green-400/50"><ChevronRight size={16} /></button>
                   </div>
                 </div>
 
@@ -989,7 +1097,7 @@ export default function HabitApp() {
                         type="button"
                         onClick={() => !isFuture && setSelectedDate(iso)}
                         disabled={isFuture}
-                        className={`flex min-h-[88px] flex-col rounded-2xl border p-2 text-left transition-opacity ${isSelected ? 'border-green-500 bg-green-50 dark:bg-green-500/10' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60'} ${!isCurrentMonth ? 'opacity-45' : ''} ${isFuture ? 'cursor-not-allowed opacity-35 grayscale' : ''}`}
+                        className={`flex min-h-[88px] flex-col rounded-2xl border p-2 text-left transition-all duration-200 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50 ${isSelected ? 'border-green-500 bg-green-50 dark:bg-green-500/10' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:bg-slate-800'} ${!isCurrentMonth ? 'opacity-45' : ''} ${isFuture ? 'cursor-not-allowed opacity-35 grayscale' : ''}`}
                       >
                         <span className="text-sm font-semibold">{date.getDate()}</span>
                         <div className="mt-auto flex flex-wrap gap-1">
@@ -1008,8 +1116,17 @@ export default function HabitApp() {
                     <span className="text-sm text-slate-500">{selectedDayCompletion} of {habits.filter((habit) => !habit.isArchived).length} done</span>
                   </div>
 
-                  <div className="space-y-2">
-                    {habits.filter((habit) => !habit.isArchived).map((habit) => {
+                  {todayHabits.length === 0 ? (
+                    <EmptyState
+                      icon="🗓️"
+                      title="Your calendar is ready"
+                      description="Add a habit to start seeing your daily progress here."
+                      actionLabel="Add your first habit"
+                      onAction={() => { setActiveTab('habits'); setShowHabitForm(true); }}
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                    {todayHabits.map((habit) => {
                       const isFuture = isDateInFuture(selectedDate);
                       return (
                         <div key={habit.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
@@ -1021,14 +1138,15 @@ export default function HabitApp() {
                             type="button"
                             disabled={isFuture}
                             onClick={() => handleToggleHabit(habit.id, selectedDate, !computeHabitProgress(habit, selectedDate))}
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${isFuture ? 'cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500' : computeHabitProgress(habit, selectedDate) ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}
+                            className={`min-h-10 rounded-full px-3 py-1 text-xs font-semibold transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50 ${isFuture ? 'cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500' : computeHabitProgress(habit, selectedDate) ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600'}`}
                           >
                             {isFuture ? 'Locked' : computeHabitProgress(habit, selectedDate) ? 'Done' : 'Mark done'}
                           </button>
                         </div>
                       );
                     })}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1040,15 +1158,25 @@ export default function HabitApp() {
                     <p className="text-sm text-slate-500">Performance</p>
                     <h2 className="text-2xl font-bold">Analytics overview</h2>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {(['7d', '30d', '90d'] as const).map((filter) => (
-                      <button key={filter} type="button" onClick={() => setRange(filter)} className={`rounded-xl px-3 py-2 text-sm font-medium ${range === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+                      <button key={filter} type="button" onClick={() => setRange(filter)} className={`min-h-10 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 hover:bg-slate-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:hover:bg-slate-700 dark:focus-visible:ring-green-400/50 ${range === filter ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
                         {filter}
                       </button>
                     ))}
                   </div>
                 </div>
 
+                {!hasAnalyticsData ? (
+                  <EmptyState
+                    icon="📈"
+                    title="No data yet"
+                    description="Complete a habit to start seeing your progress and trends."
+                    actionLabel="Add your first habit"
+                    onAction={() => { setActiveTab('habits'); setShowHabitForm(true); }}
+                  />
+                ) : (
+                  <>
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                     <p className="text-sm text-slate-500">Overall completion</p>
@@ -1065,7 +1193,7 @@ export default function HabitApp() {
                 </div>
 
                 <div className="grid gap-5 xl:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/60 dark:hover:shadow-slate-950/30">
                     <h3 className="mb-4 font-semibold">Completion trend</h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
@@ -1080,7 +1208,7 @@ export default function HabitApp() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/60 dark:hover:shadow-slate-950/30">
                     <h3 className="mb-4 font-semibold">Habit comparison</h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
@@ -1095,6 +1223,8 @@ export default function HabitApp() {
                     </div>
                   </div>
                 </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1111,15 +1241,15 @@ export default function HabitApp() {
                     <div className="space-y-3">
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Name
-                        <input defaultValue="Demo User" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                        <input defaultValue="Demo User" className="dashboard-input mt-1 w-full px-3 py-2" />
                       </label>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Email
-                        <input defaultValue="demo@example.com" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                        <input defaultValue="demo@example.com" className="dashboard-input mt-1 w-full px-3 py-2" />
                       </label>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Password
-                        <input type="password" placeholder="New password" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900" />
+                        <input type="password" placeholder="New password" className="dashboard-input mt-1 w-full px-3 py-2" />
                       </label>
                     </div>
                   </div>
@@ -1129,7 +1259,7 @@ export default function HabitApp() {
                     <div className="space-y-4">
                       <div className="flex gap-2">
                         {(['light', 'dark', 'system'] as const).map((option) => (
-                          <button key={option} type="button" onClick={() => setTheme(option)} className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium ${theme === option ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300'}`}>
+                          <button key={option} type="button" onClick={() => setTheme(option)} className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 hover:shadow-sm active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:focus-visible:ring-green-400/50 ${theme === option ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`}>
                             {option === 'light' ? <Sun size={15} /> : option === 'dark' ? <Moon size={15} /> : <Sparkles size={15} />}
                             {option}
                           </button>
@@ -1137,7 +1267,7 @@ export default function HabitApp() {
                       </div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                         Accent color
-                        <input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900" />
+                        <input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} className="dashboard-input mt-1 h-11 w-full p-1" />
                       </label>
                     </div>
                   </div>
@@ -1146,8 +1276,8 @@ export default function HabitApp() {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
                   <h3 className="mb-4 font-semibold">Data & backup</h3>
                   <div className="flex flex-wrap gap-3">
-                    <button type="button" onClick={() => handleExport('csv')} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900"><Download size={15} /> Export CSV</button>
-                    <button type="button" onClick={() => handleExport('json')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><Download size={15} /> Export JSON</button>
+                    <button type="button" onClick={() => handleExport('csv')} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-all duration-200 hover:bg-slate-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus-visible:ring-green-400/50"><Download size={15} /> Export CSV</button>
+                    <button type="button" onClick={() => handleExport('json')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus-visible:ring-green-400/50"><Download size={15} /> Export JSON</button>
                   </div>
                 </div>
               </div>
@@ -1155,7 +1285,7 @@ export default function HabitApp() {
           </section>
 
           <aside className="space-y-6">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-slate-950/30">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold">Quick stats</h2>
                 <Zap className="text-green-500" size={18} />
@@ -1176,10 +1306,10 @@ export default function HabitApp() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-slate-950/30">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-bold">Categories</h2>
-                <button type="button" onClick={() => setShowCategoryForm((current) => !current)} className="rounded-xl border border-slate-200 px-2 py-1 text-xs font-medium dark:border-slate-700">+ New</button>
+                <button type="button" onClick={() => setShowCategoryForm((current) => !current)} className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-medium transition-all duration-200 hover:bg-slate-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:focus-visible:ring-green-400/50">+ New</button>
               </div>
 
               {showCategoryForm && (
@@ -1188,53 +1318,59 @@ export default function HabitApp() {
                     value={newCategoryName}
                     onChange={(event) => setNewCategoryName(event.target.value)}
                     placeholder="Category name"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                    className="dashboard-input w-full px-3 py-2"
                   />
                   <div className="flex items-center justify-between gap-2">
                     <input
                       type="color"
                       value={newCategoryColor}
                       onChange={(event) => setNewCategoryColor(event.target.value)}
-                      className="h-10 w-12 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
+                      className="dashboard-input h-10 w-12 p-1"
                     />
-                    <button type="button" onClick={() => void handleCreateCategory()} disabled={isCategorySaving} className="rounded-xl bg-green-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                    <button type="button" onClick={() => void handleCreateCategory()} disabled={isCategorySaving} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-green-500 px-3 py-2 text-xs font-semibold text-white transition-all duration-200 hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60">
+                      {isCategorySaving && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" />}
                       {isCategorySaving ? 'Saving...' : 'Save'}
                     </button>
                   </div>
                 </div>
               )}
 
-              {error && (
-                <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/60 dark:bg-red-500/10 dark:text-red-200">
-                  {error}
-                </div>
-              )}
+              {categories.length === 0 ? (
+                <EmptyState
+                  icon="🏷️"
+                  title="No categories yet"
+                  description="Create a category to organize your habits."
+                  actionLabel="Create a category"
+                  onAction={() => setShowCategoryForm(true)}
+                />
+              ) : null}
 
               <div className="space-y-2">
                 {categories.map((category) => {
                   const isEditing = editingCategoryId === category.id;
                   return (
-                    <div key={category.id} className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+                    <div key={category.id} className="rounded-xl bg-slate-50 p-2.5 transition-all duration-200 hover:shadow-sm dark:bg-slate-800/60">
                       {isEditing ? (
                         <div className="space-y-2">
                           <input
                             value={categoryDraft.name}
                             onChange={(event) => setCategoryDraft((current) => ({ ...current, name: event.target.value }))}
                             placeholder="Category name"
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"
+                            className="dashboard-input w-full px-3 py-2"
                           />
                           <div className="flex items-center justify-between gap-2">
                             <input
                               type="color"
                               value={categoryDraft.color}
                               onChange={(event) => setCategoryDraft((current) => ({ ...current, color: event.target.value }))}
-                              className="h-10 w-12 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900"
+                              className="dashboard-input h-10 w-12 p-1"
                             />
                             <div className="flex gap-2">
                               <button type="button" onClick={() => { setEditingCategoryId(null); setCategoryDraft({ name: '', color: '#22c55e' }); }} className="rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-600">
                                 Cancel
                               </button>
-                              <button type="button" onClick={() => void handleSaveCategory(category.id)} disabled={isCategorySaving} className="rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                              <button type="button" onClick={() => void handleSaveCategory(category.id)} disabled={isCategorySaving} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60">
+                                {isCategorySaving && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" />}
                                 {isCategorySaving ? 'Saving...' : 'Save'}
                               </button>
                             </div>
@@ -1242,7 +1378,7 @@ export default function HabitApp() {
                         </div>
                       ) : (
                         <div className="flex items-center justify-between gap-2">
-                          <button type="button" onClick={() => { setEditingCategoryId(category.id); setCategoryDraft({ name: category.name, color: category.color }); }} className="flex flex-1 items-center justify-between gap-2 rounded-xl text-left">
+                          <button type="button" onClick={() => { setEditingCategoryId(category.id); setCategoryDraft({ name: category.name, color: category.color }); }} className="flex min-h-10 flex-1 items-center justify-between gap-2 rounded-xl text-left transition-colors duration-200 hover:text-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:hover:text-green-300 dark:focus-visible:ring-green-400/50">
                             <div className="flex items-center gap-2">
                               <span className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
                               <span>{category.name}</span>
@@ -1250,10 +1386,10 @@ export default function HabitApp() {
                             <span className="text-xs text-slate-500">{habits.filter((habit) => habit.categoryId === category.id).length}</span>
                           </button>
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => { setEditingCategoryId(category.id); setCategoryDraft({ name: category.name, color: category.color }); }} className="text-xs text-slate-600 underline dark:text-slate-300">
+                            <button type="button" onClick={() => { setEditingCategoryId(category.id); setCategoryDraft({ name: category.name, color: category.color }); }} className="min-h-10 rounded-lg px-2 text-xs text-slate-600 underline transition-colors duration-200 hover:text-green-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/50 dark:text-slate-300 dark:hover:text-green-300 dark:focus-visible:ring-green-400/50">
                               Rename
                             </button>
-                            <button type="button" onClick={() => void handleDeleteCategory(category.id)} disabled={isCategorySaving} className="text-xs text-red-600 underline dark:text-red-300 disabled:cursor-not-allowed disabled:opacity-60">
+                            <button type="button" onClick={() => void handleDeleteCategory(category.id)} disabled={isCategorySaving} className="min-h-10 rounded-lg px-2 text-xs text-red-600 underline transition-colors duration-200 hover:text-red-800 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 dark:text-red-300 dark:hover:text-red-200 dark:focus-visible:ring-red-400/50 disabled:cursor-not-allowed disabled:opacity-60">
                               Delete
                             </button>
                           </div>
